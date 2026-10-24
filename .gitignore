@@ -1,0 +1,17 @@
+# Secret WiFi configuration
+secrets.h
+firmware/SmartGlove/secrets.h
+
+# Build artifacts
+*.bin
+*.hex
+*.elf
+build/
+.vscode/
+.idea/
+
+# Node / Dashboard dependencies
+node_modules/
+dist/
+dist-ssr/
+*.local
