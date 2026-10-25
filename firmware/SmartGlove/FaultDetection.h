@@ -1,7 +1,6 @@
 #ifndef FAULT_DETECTION_H
 #define FAULT_DETECTION_H
 
-#include <Arduino.h>
 #include "Config.h"
 #include "SensorAcquisition.h"
 #include "SignalProcessing.h"

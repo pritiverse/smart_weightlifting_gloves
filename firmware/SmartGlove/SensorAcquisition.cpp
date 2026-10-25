@@ -1,3 +1,4 @@
+#include "Config.h"
 #include "SensorAcquisition.h"
 
 SensorAcquisition::SensorAcquisition()
@@ -30,12 +31,16 @@ bool SensorAcquisition::init() {
     // 1. Configure FSR Pin on GPIO 34 (ADC1)
     // GPIO 34 is strictly an input pin on ESP32
     pinMode(Config::Hardware::PIN_FSR_ADC, INPUT);
+#if defined(ARDUINO_ARCH_ESP32)
     analogReadResolution(12); // 12-bit resolution: 0 - 4095
     analogSetAttenuation(ADC_11db); // 11dB attenuation: ~0.15V to 3.15V linear range
+#endif
 
     // 2. Initialize I2C Bus on GPIO 21 (SDA) and GPIO 22 (SCL)
     Wire.begin(Config::Hardware::PIN_I2C_SDA, Config::Hardware::PIN_I2C_SCL, Config::Hardware::I2C_CLOCK_SPEED_HZ);
+#if defined(ARDUINO_ARCH_ESP32)
     Wire.setTimeOut(25); // 25ms timeout to prevent blocking the acquisition loop
+#endif
 
     // 3. Scan and locate MPU6050 address
     _health.mpuAddress = scanI2C();
@@ -135,7 +140,7 @@ uint16_t SensorAcquisition::readFsrOversampled() {
     // Insertion sort to extract trimmed mean
     for (uint8_t i = 1; i < Config::Timing::FSR_OVERSAMPLE_COUNT; i++) {
         uint16_t key = samples[i];
-        int8_t j = i - 1;
+        int j = i - 1;
         while (j >= 0 && samples[j] > key) {
             samples[j + 1] = samples[j];
             j--;

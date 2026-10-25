@@ -1,5 +1,5 @@
+#include "Config.h"
 #include "RepEngine.h"
-#include <math.h>
 
 RepetitionEngine::RepetitionEngine()
     : _currentState(REP_STATE_IDLE),

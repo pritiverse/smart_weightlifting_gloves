@@ -1,7 +1,15 @@
 #ifndef SMARTGLOVE_CONFIG_H
 #define SMARTGLOVE_CONFIG_H
 
+#if defined(ARDUINO) && !defined(ARDUINO_ARCH_ESP32)
+#error "GRIPGUARD requires ESP32 architecture! In Arduino IDE, please switch your board: Tools -> Board -> esp32 -> ESP32 Dev Module."
+#endif
+
+#if defined(ARDUINO)
 #include <Arduino.h>
+#else
+#include "Arduino_Compat.h"
+#endif
 
 /**
  * ============================================================================

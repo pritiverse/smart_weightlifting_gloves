@@ -1,5 +1,5 @@
+#include "Config.h"
 #include "FaultDetection.h"
-#include <math.h>
 
 FaultDetectionEngine::FaultDetectionEngine()
     : _recoveryStartTimeMs(0),

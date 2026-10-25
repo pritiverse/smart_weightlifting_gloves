@@ -1,9 +1,10 @@
 #ifndef CALIBRATION_H
 #define CALIBRATION_H
 
-#include <Arduino.h>
-#include <Preferences.h>
 #include "Config.h"
+#if defined(ARDUINO_ARCH_ESP32)
+#include <Preferences.h>
+#endif
 #include "SensorAcquisition.h"
 #include "SignalProcessing.h"
 

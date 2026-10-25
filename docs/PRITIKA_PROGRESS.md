@@ -108,3 +108,15 @@
 - **Milestones 7 & 8 Implementation:** Built complete React 18 + Vite + TypeScript dashboard in `dashboard/` with bespoke dark-mode design system, 7 core panels, offline simulation mode, rep history log, and CSV/JSON export. Validated with `npm run build`.
 - **Milestone 9 Implementation:** Created Python simulation test suite `tests/simulation/test_rep_validation.py` (executed and verified 6/6 passing: valid rep, partial ROM rejection, ballistic spike rejection, grip rejection, sensor dropout rejection, refractory lockout). Authored `tests/test-scenarios.md`.
 - **Milestone 10 Implementation:** Authored `docs/ARCHITECTURE.md`, `docs/TROUBLESHOOTING.md`, `docs/LIMITATIONS.md`, `docs/DEMO_SCRIPT.md`, and top-level `README.md`.
+
+### Session 2 — 2026-10-25
+- **IDE Static Analysis & Language Server Compatibility:**
+  - Resolved desktop clangd / IntelliSense `"Arduino.h file not found"`, `"Unknown type name uint32_t"`, and undeclared identifier errors in the IDE's Problems panel.
+  - Implemented `firmware/SmartGlove/Arduino_Compat.h` providing zero-overhead compile-time shims for non-embedded environments while remaining 100% transparent to the Arduino ESP32 core.
+  - Added standard `<stdint.h>`, `<stddef.h>`, `<string.h>`, and `<math.h>` headers to `Config.h`.
+  - Configured workspace `.clangd` and `.vscode/c_cpp_properties.json` to recognize firmware include paths and parse `.ino` sketches as C++.
+  - Re-verified Python simulation suite `tests/simulation/test_rep_validation.py` (6/6 passed, 100%).
+- **Pure Real-Time Hardware Architecture:**
+  - Removed all simulation code, synthetic data generation, and offline demo toggles from `dashboard/`.
+  - Dashboard is now 100% dedicated to streaming live physical telemetry from the ESP32 hardware at 10 Hz.
+  - Verified clean production build (`npm run build` in 1.01s).

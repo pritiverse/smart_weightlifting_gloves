@@ -14,7 +14,6 @@ import {
   postResetReps,
   setApiHost,
   getApiHost,
-  setSimulationMode,
 } from './services/api';
 import { TelemetryPacket, CalibrationProfile, HistoricalRepItem } from './types';
 
@@ -25,7 +24,6 @@ export function App() {
   const [repHistory, setRepHistory] = useState<HistoricalRepItem[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [latencyMs, setLatencyMs] = useState(0);
-  const [isSimulating, setIsSimulating] = useState(false);
   const [isCalibModalOpen, setIsCalibModalOpen] = useState(false);
   const [apiHost, setHostState] = useState(getApiHost());
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -41,7 +39,7 @@ export function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 2. High-Speed 10 Hz Telemetry Polling Loop
+  // 2. High-Speed 10 Hz Real-Time Telemetry Polling Loop
   useEffect(() => {
     let isSubscribed = true;
 
@@ -80,17 +78,20 @@ export function App() {
             durationMs: data.repetition.last_rep_duration_ms,
             peakRomDeg: data.repetition.last_rep_rom_deg,
             avgGripPct: data.repetition.last_rep_grip_pct,
-            rejectionReason: newValid ? 'NONE (VALID)' : data.repetition.last_rejection_reason,
+            rejectionReason: data.repetition.last_rejection_reason,
           };
           setRepHistory((prev) => [newItem, ...prev]);
         }
       } catch {
-        if (!isSubscribed) return;
-        setIsConnected(false);
+        if (isSubscribed) {
+          setIsConnected(false);
+        }
       }
     };
 
+    poll();
     const interval = setInterval(poll, 100);
+
     return () => {
       isSubscribed = false;
       clearInterval(interval);
@@ -102,13 +103,7 @@ export function App() {
     fetchCalibration()
       .then(setCalibProfile)
       .catch(() => {});
-  }, [isSimulating]);
-
-  const handleToggleSimulation = () => {
-    const next = !isSimulating;
-    setIsSimulating(next);
-    setSimulationMode(next);
-  };
+  }, []);
 
   const handleUpdateHost = (host: string) => {
     setApiHost(host);
@@ -190,8 +185,6 @@ export function App() {
       <Header
         isConnected={isConnected}
         latencyMs={latencyMs}
-        isSimulating={isSimulating}
-        onToggleSimulation={handleToggleSimulation}
         onOpenCalibration={() => setIsCalibModalOpen(true)}
         apiHost={apiHost}
         onUpdateHost={handleUpdateHost}
@@ -221,20 +214,22 @@ export function App() {
         </div>
       ) : (
         <div style={{ textAlign: 'center', padding: '100px 20px' }}>
-          <div className="brand-icon" style={{ margin: '0 auto 20px', width: '56px', height: '56px' }}>
+          <div className="brand-icon" style={{ margin: '0 auto 20px', width: '56px', height: '56px', animation: 'pulse 2s infinite' }}>
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#040814" strokeWidth="2.5">
               <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
             </svg>
           </div>
           <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px' }}>
-            Connecting to GRIPGUARD Hardware...
+            Waiting for Real-Time GRIPGUARD Hardware...
           </h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', maxWidth: '480px', margin: '0 auto 24px' }}>
-            Looking for ESP32 on <code>{apiHost}</code> (SoftAP: <code>192.168.4.1</code>). Verify Wi-Fi connection to <strong>GripGuard-AP</strong>, or enable Offline Simulation Mode for immediate evaluation.
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', maxWidth: '520px', margin: '0 auto 20px', lineHeight: 1.6 }}>
+            Streaming endpoint: <code>{apiHost}/api/telemetry</code>.<br />
+            Please connect your computer to the glove Wi-Fi: <strong>GripGuard-AP</strong> (password: <code>smartglove123</code>).
           </p>
-          <button onClick={handleToggleSimulation} className="btn-primary" style={{ margin: '0 auto' }}>
-            Launch Offline Simulation Mode
-          </button>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--cyan-primary)', fontSize: '13px' }}>
+            <span className="status-dot pulse" style={{ width: '8px', height: '8px', background: 'var(--cyan-primary)' }} />
+            Listening for live 10 Hz physical telemetry stream...
+          </div>
         </div>
       )}
 

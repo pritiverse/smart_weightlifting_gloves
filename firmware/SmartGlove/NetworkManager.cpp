@@ -1,6 +1,6 @@
 #include "NetworkManager.h"
 
-NetworkManager::NetworkManager()
+GripNetworkManager::GripNetworkManager()
     : _server(80),
       _calibRef(nullptr),
       _repRef(nullptr),
@@ -8,23 +8,23 @@ NetworkManager::NetworkManager()
       _isStaConnected(false) {
 }
 
-void NetworkManager::sendCORSHeaders() {
+void GripNetworkManager::sendCORSHeaders() {
     _server.sendHeader("Access-Control-Allow-Origin", "*");
     _server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     _server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
-void NetworkManager::handlePreflight() {
+void GripNetworkManager::handlePreflight() {
     sendCORSHeaders();
     _server.send(204);
 }
 
-void NetworkManager::handleNotFound() {
+void GripNetworkManager::handleNotFound() {
     sendCORSHeaders();
     _server.send(404, "application/json", "{\"error\":\"Endpoint not found\"}");
 }
 
-void NetworkManager::init(PersonalCalibration* calib, RepetitionEngine* rep, FaultDetectionEngine* fault) {
+void GripNetworkManager::init(PersonalCalibration* calib, RepetitionEngine* rep, FaultDetectionEngine* fault) {
     _calibRef = calib;
     _repRef = rep;
     _faultRef = fault;
@@ -58,7 +58,7 @@ void NetworkManager::init(PersonalCalibration* calib, RepetitionEngine* rep, Fau
     _server.begin();
 }
 
-void NetworkManager::registerRoutes() {
+void GripNetworkManager::registerRoutes() {
     // CORS Preflights
     _server.on("/api/telemetry", HTTP_OPTIONS, [this]() { handlePreflight(); });
     _server.on("/api/calibration", HTTP_OPTIONS, [this]() { handlePreflight(); });
@@ -78,7 +78,7 @@ void NetworkManager::registerRoutes() {
     _server.onNotFound([this]() { handleNotFound(); });
 }
 
-void NetworkManager::handleTelemetry() {
+void GripNetworkManager::handleTelemetry() {
     sendCORSHeaders();
 
     const DiagnosticReport& diag = _faultRef->getReport();
@@ -155,7 +155,7 @@ void NetworkManager::handleTelemetry() {
     _server.send(200, "application/json", json);
 }
 
-void NetworkManager::handleGetCalibration() {
+void GripNetworkManager::handleGetCalibration() {
     sendCORSHeaders();
     const CalibrationProfile& prof = _calibRef->getProfile();
 
@@ -178,7 +178,7 @@ void NetworkManager::handleGetCalibration() {
     _server.send(200, "application/json", json);
 }
 
-void NetworkManager::handlePostCalibrate() {
+void GripNetworkManager::handlePostCalibrate() {
     sendCORSHeaders();
     String action = _server.hasArg("action") ? _server.arg("action") : "";
 
@@ -196,7 +196,7 @@ void NetworkManager::handlePostCalibrate() {
     }
 }
 
-void NetworkManager::handleGetDiagnostics() {
+void GripNetworkManager::handleGetDiagnostics() {
     sendCORSHeaders();
     const DiagnosticReport& diag = _faultRef->getReport();
 
@@ -217,7 +217,7 @@ void NetworkManager::handleGetDiagnostics() {
     _server.send(200, "application/json", json);
 }
 
-void NetworkManager::handlePostExercise() {
+void GripNetworkManager::handlePostExercise() {
     sendCORSHeaders();
     String profile = _server.hasArg("profile") ? _server.arg("profile") : "";
 
@@ -235,13 +235,13 @@ void NetworkManager::handlePostExercise() {
     }
 }
 
-void NetworkManager::handlePostResetReps() {
+void GripNetworkManager::handlePostResetReps() {
     sendCORSHeaders();
     _repRef->resetCounters();
     _server.send(200, "application/json", "{\"status\":\"repetition_counters_reset\"}");
 }
 
-void NetworkManager::update(const RawSensorData& raw, const ProcessedSensorData& proc) {
+void GripNetworkManager::update(const RawSensorData& raw, const ProcessedSensorData& proc) {
     _cachedRaw = raw;
     _cachedProc = proc;
 

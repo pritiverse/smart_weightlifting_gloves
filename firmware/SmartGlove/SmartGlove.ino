@@ -16,7 +16,6 @@
  * Target Baud: 115200
  */
 
-#include <Arduino.h>
 #include "Config.h"
 #include "SensorAcquisition.h"
 #include "SignalProcessing.h"
@@ -31,7 +30,7 @@ SignalProcessing signalProc;
 PersonalCalibration personalCal;
 RepetitionEngine repEngine;
 FaultDetectionEngine faultEngine;
-NetworkManager netManager;
+GripNetworkManager netManager;
 
 RawSensorData currentSample;
 ProcessedSensorData processedSample;

@@ -1,9 +1,10 @@
 #ifndef SENSOR_ACQUISITION_H
 #define SENSOR_ACQUISITION_H
 
-#include <Arduino.h>
-#include <Wire.h>
 #include "Config.h"
+#if defined(ARDUINO)
+#include <Wire.h>
+#endif
 
 /**
  * Data container for single synchronized sensor acquisition cycle

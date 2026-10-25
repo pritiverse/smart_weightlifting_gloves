@@ -1,5 +1,5 @@
+#include "Config.h"
 #include "SignalProcessing.h"
-#include <math.h>
 
 SignalProcessing::SignalProcessing()
     : _initialized(false),

@@ -1,10 +1,11 @@
 #ifndef NETWORK_MANAGER_H
 #define NETWORK_MANAGER_H
 
-#include <Arduino.h>
+#include "Config.h"
+#if defined(ARDUINO_ARCH_ESP32)
 #include <WiFi.h>
 #include <WebServer.h>
-#include "Config.h"
+#endif
 #include "SensorAcquisition.h"
 #include "SignalProcessing.h"
 #include "Calibration.h"
@@ -17,9 +18,9 @@
 #include "secrets.example.h"
 #endif
 
-class NetworkManager {
+class GripNetworkManager {
 public:
-    NetworkManager();
+    GripNetworkManager();
 
     /**
      * Initialize SoftAP and optional Station Wi-Fi; register HTTP REST endpoints.

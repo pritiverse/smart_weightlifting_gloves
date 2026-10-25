@@ -1,0 +1,21 @@
+CompileFlags:
+  Add:
+    - -std=c++17
+    - -Ifirmware/SmartGlove
+    - -Wno-unknown-pragmas
+
+Diagnostics:
+  Suppress:
+    - pp_file_not_found
+    - drv_unsupported_opt_for_target
+
+---
+If:
+  PathMatch: .*\.ino
+CompileFlags:
+  Add:
+    - -xc++
+Diagnostics:
+  Suppress:
+    - pp_file_not_found
+    - drv_unsupported_opt_for_target

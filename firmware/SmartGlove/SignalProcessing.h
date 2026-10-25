@@ -1,7 +1,6 @@
 #ifndef SIGNAL_PROCESSING_H
 #define SIGNAL_PROCESSING_H
 
-#include <Arduino.h>
 #include "Config.h"
 #include "SensorAcquisition.h"
 

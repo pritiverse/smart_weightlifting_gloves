@@ -1,5 +1,5 @@
+#include "Config.h"
 #include "Calibration.h"
-#include <math.h>
 
 static constexpr uint32_t MAGIC_HEADER = 0x47524950; // "GRIP"
 static constexpr uint16_t SCHEMA_VERSION = 1;
@@ -182,11 +182,11 @@ void PersonalCalibration::processSample(const RawSensorData& raw, const Processe
                 }
                 float meanPitch = _sumPitch / _sampleCount;
                 float varPitch = (_sumPitchSq / _sampleCount) - (meanPitch * meanPitch);
-                float stdPitch = sqrtf(max(0.0f, varPitch));
+                float stdPitch = sqrtf(varPitch > 0.0f ? varPitch : 0.0f);
 
                 float meanRoll = _sumRoll / _sampleCount;
                 float varRoll = (_sumRollSq / _sampleCount) - (meanRoll * meanRoll);
-                float stdRoll = sqrtf(max(0.0f, varRoll));
+                float stdRoll = sqrtf(varRoll > 0.0f ? varRoll : 0.0f);
 
                 float combinedStd = sqrtf(stdPitch * stdPitch + stdRoll * stdRoll);
 
@@ -216,7 +216,7 @@ void PersonalCalibration::processSample(const RawSensorData& raw, const Processe
                 }
                 float meanADC = (float)_sumADC / _sampleCount;
                 float varADC = ((float)_sumADCSq / _sampleCount) - (meanADC * meanADC);
-                float stdADC = sqrtf(max(0.0f, varADC));
+                float stdADC = sqrtf(varADC > 0.0f ? varADC : 0.0f);
 
                 if (meanADC > 1200.0f) {
                     failCalibration("Relaxed grip: Baseline too high (>1200 ADC). Release grip.");
@@ -243,7 +243,7 @@ void PersonalCalibration::processSample(const RawSensorData& raw, const Processe
                 }
                 float meanADC = (float)_sumADC / _sampleCount;
                 float varADC = ((float)_sumADCSq / _sampleCount) - (meanADC * meanADC);
-                float stdADC = sqrtf(max(0.0f, varADC));
+                float stdADC = sqrtf(varADC > 0.0f ? varADC : 0.0f);
 
                 _profile.fsrFirmMeanADC = (uint16_t)meanADC;
                 _profile.fsrFirmStdDev = stdADC;

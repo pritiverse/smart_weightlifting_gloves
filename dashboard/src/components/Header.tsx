@@ -3,8 +3,6 @@ import React, { useState } from 'react';
 interface HeaderProps {
   isConnected: boolean;
   latencyMs: number;
-  isSimulating: boolean;
-  onToggleSimulation: () => void;
   onOpenCalibration: () => void;
   apiHost: string;
   onUpdateHost: (host: string) => void;
@@ -13,8 +11,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   isConnected,
   latencyMs,
-  isSimulating,
-  onToggleSimulation,
   onOpenCalibration,
   apiHost,
   onUpdateHost,
@@ -40,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
           <h1 className="brand-title">
             GRIP<span>GUARD</span>
           </h1>
-          <p className="brand-subtitle">Personalized Rep Validation & Sensor Reliability Intelligence</p>
+          <p className="brand-subtitle">Real-Time Rep Validation & Sensor Reliability Intelligence</p>
         </div>
       </div>
 
@@ -75,26 +71,9 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        <button
-          onClick={onToggleSimulation}
-          className="btn-secondary"
-          style={{
-            borderColor: isSimulating ? 'var(--cyan-primary)' : 'var(--border-subtle)',
-            color: isSimulating ? 'var(--cyan-primary)' : 'var(--text-muted)',
-          }}
-        >
-          {isSimulating ? '● Simulation Active' : '○ Offline Sim Mode'}
-        </button>
-
-        <div className={`connection-badge ${isConnected || isSimulating ? 'connected' : 'disconnected'}`}>
+        <div className={`connection-badge ${isConnected ? 'connected' : 'disconnected'}`}>
           <div className="status-dot" />
-          <span>
-            {isSimulating
-              ? 'SIMULATED (LIVE)'
-              : isConnected
-              ? `ONLINE (${latencyMs}ms)`
-              : 'OFFLINE / RECONNECTING'}
-          </span>
+          <span>{isConnected ? `ONLINE (${latencyMs}ms)` : 'OFFLINE / SEARCHING ESP32'}</span>
         </div>
 
         <button onClick={onOpenCalibration} className="btn-primary">

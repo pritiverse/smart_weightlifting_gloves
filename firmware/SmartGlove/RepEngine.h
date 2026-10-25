@@ -1,7 +1,6 @@
 #ifndef REP_ENGINE_H
 #define REP_ENGINE_H
 
-#include <Arduino.h>
 #include "Config.h"
 #include "SensorAcquisition.h"
 #include "SignalProcessing.h"
