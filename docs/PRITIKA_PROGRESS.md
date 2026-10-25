@@ -120,3 +120,30 @@
   - Removed all simulation code, synthetic data generation, and offline demo toggles from `dashboard/`.
   - Dashboard is now 100% dedicated to streaming live physical telemetry from the ESP32 hardware at 10 Hz.
   - Verified clean production build (`npm run build` in 1.01s).
+
+### Session 3 — 2026-10-25
+- **UX & Usability Overhaul:**
+  - Added Home WiFi (`10.249.34.96`) vs Glove AP (`192.168.4.1`) direct toggle in dashboard header.
+  - Added prominent Start/Stop Session controls with active status indicators in `OverviewCards.tsx`.
+  - Fixed stale closure in `App.tsx` polling loop using `useRef(sessionActive)` so session reps populate reliably.
+  - Built interactive floating help system (`InfoGuide.tsx`) detailing all metrics, rep rules, phase states, and health states.
+- **HCI Calibration Wizard & Motor Transition Buffers:**
+  - Researched HCI wearable calibration principles (Fitts's law, motor preparation latency, transient masking).
+  - Added user readiness check before calibration starts.
+  - Implemented 5-second initial countdown buffer for Step 1 (Rest Arm).
+  - Implemented 3-second inter-step transition buffers between positions (Starting Posture, Relaxed Grip, Firm Squeeze).
+  - Updated firmware (`Config.h`, `Calibration.h`, `Calibration.cpp`, `NetworkManager.cpp`) with explicit `CALIB_PREP_*` states and accumulator isolation.
+  - Enhanced dashboard `CalibrationModal.tsx` with animated countdown rings, target posture illustrations, and Web Audio feedback chimes (`880 Hz` ticks, `1320 Hz` action chime).
+  - Authored Section 5 of `docs/CALIBRATION.md` detailing HCI biomechanical rationale.
+  - Verified with `npm run build` (clean compilation, 0 errors).
+
+### Session 4 — 2026-10-26
+- **ESP32 DevKit Latency & Connection Stability Optimization:**
+  - Diagnosed root causes of ESP32 slowness and dropouts (Wi-Fi modem sleep, overlapping 100ms HTTP polling, AP+STA channel hopping, dynamic string heap churn).
+  - Disabled Wi-Fi modem sleep (`WiFi.setSleep(false)`) in `NetworkManager.cpp` to eliminate 100–300 ms beacon latency spikes and packet drops.
+  - Added automatic pure `WIFI_AP` mode fallback when Station Wi-Fi is unconfigured or unavailable, preventing periodic background channel hopping that disrupted `GripGuard-AP`.
+  - Added `json.reserve(1024)` in `handleTelemetry()` and `json.reserve(512)` in `handleGetDiagnostics()` to completely eliminate FreeRTOS heap memory fragmentation during rapid REST requests.
+  - Refactored dashboard `App.tsx` polling loop to chained `setTimeout` polling with 250 ms pacing, preventing concurrent request overlap and socket exhaustion on the ESP32 `WebServer`.
+  - Authored comprehensive Section 4 in `docs/TROUBLESHOOTING.md` documenting brownout detection, power surge considerations, modem sleep, and heap hygiene.
+  - Re-verified full test suite (`python tests/simulation/test_rep_validation.py` - 6/6 passed) and production build (`npm run build` - 0 errors).
+

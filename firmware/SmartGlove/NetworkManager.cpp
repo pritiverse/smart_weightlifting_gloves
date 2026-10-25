@@ -29,16 +29,28 @@ void GripNetworkManager::init(PersonalCalibration* calib, RepetitionEngine* rep,
     _repRef = rep;
     _faultRef = fault;
 
-    // 1. Dual Wi-Fi Configuration: AP + Station Mode
-    WiFi.mode(WIFI_AP_STA);
+    // 1. Wi-Fi Configuration
+    #ifdef WIFI_STA_SSID
+    bool hasValidSta = (strcmp(WIFI_STA_SSID, "YOUR_WIFI_SSID") != 0 && strlen(WIFI_STA_SSID) > 0);
+    #else
+    bool hasValidSta = false;
+    #endif
+
+    if (hasValidSta) {
+        WiFi.mode(WIFI_AP_STA);
+    } else {
+        WiFi.mode(WIFI_AP);
+    }
+
+    // Disable Wi-Fi modem sleep to eliminate 100-300ms latency spikes and prevent packet drops
+    WiFi.setSleep(false);
 
     // Launch standalone Access Point ("GripGuard-AP" / "smartglove123")
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
     _apIP = WiFi.softAPIP();
 
     // Attempt Station connection if valid SSID provided
-    #ifdef WIFI_STA_SSID
-    if (strcmp(WIFI_STA_SSID, "YOUR_WIFI_SSID") != 0 && strlen(WIFI_STA_SSID) > 0) {
+    if (hasValidSta) {
         WiFi.begin(WIFI_STA_SSID, WIFI_STA_PASSWORD);
         uint32_t startAttempt = millis();
         while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 3500) {
@@ -47,9 +59,11 @@ void GripNetworkManager::init(PersonalCalibration* calib, RepetitionEngine* rep,
         if (WiFi.status() == WL_CONNECTED) {
             _isStaConnected = true;
             _staIP = WiFi.localIP();
+        } else {
+            // Revert to pure AP mode so background STA reconnect scans do not disrupt the AP
+            WiFi.mode(WIFI_AP);
         }
     }
-    #endif
 
     // 2. Register REST API Routes
     registerRoutes();
@@ -85,7 +99,9 @@ void GripNetworkManager::handleTelemetry() {
     const RepetitionStats& repStats = _repRef->getStats();
     const ExerciseProfile& exProf = _repRef->getActiveProfile();
 
-    String json = "{";
+    String json;
+    json.reserve(1024);
+    json = "{";
     json += "\"schema_version\":\"1.0\",";
     json += "\"device_id\":\"GRIPGUARD_ESP32\",";
     json += "\"sequence_id\":" + String(_cachedRaw.sequenceId) + ",";
@@ -184,7 +200,7 @@ void GripNetworkManager::handlePostCalibrate() {
 
     if (action == "start") {
         _calibRef->startWizard();
-        _server.send(200, "application/json", "{\"status\":\"started\",\"step\":\"PREFLIGHT_CHECK\"}");
+        _server.send(200, "application/json", "{\"status\":\"started\",\"step\":\"PREP_REST_ARM\"}");
     } else if (action == "cancel") {
         _calibRef->abortWizard("Canceled via API");
         _server.send(200, "application/json", "{\"status\":\"canceled\"}");
@@ -200,7 +216,9 @@ void GripNetworkManager::handleGetDiagnostics() {
     sendCORSHeaders();
     const DiagnosticReport& diag = _faultRef->getReport();
 
-    String json = "{";
+    String json;
+    json.reserve(512);
+    json = "{";
     json += "\"overall_health\":\"" + String(_faultRef->getHealthStateName(diag.overallHealth)) + "\",";
     json += "\"mpu_health\":\"" + String(_faultRef->getHealthStateName(diag.mpuHealth)) + "\",";
     json += "\"fsr_health\":\"" + String(_faultRef->getHealthStateName(diag.fsrHealth)) + "\",";

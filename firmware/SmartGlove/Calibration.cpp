@@ -66,10 +66,14 @@ bool PersonalCalibration::init() {
 
 const char* PersonalCalibration::getStepName() const {
     switch (_currentStep) {
-        case CALIB_IDLE:               return "IDLE";
+        case CALIB_IDLE:                return "IDLE";
+        case CALIB_PREP_STEP1_REST:     return "PREP_REST_ARM";
         case CALIB_STEP1_PREFLIGHT:     return "PREFLIGHT_CHECK";
+        case CALIB_PREP_STEP2_POSTURE:  return "PREP_START_POSITION";
         case CALIB_STEP2_NEUTRAL_WRIST: return "NEUTRAL_WRIST_HOLD";
+        case CALIB_PREP_STEP3_RELAXED:  return "PREP_RELAX_GRIP";
         case CALIB_STEP3_RELAXED_GRIP:  return "RELAXED_GRIP_BASELINE";
+        case CALIB_PREP_STEP4_FIRM:     return "PREP_FIRM_GRIP";
         case CALIB_STEP4_FIRM_GRIP:     return "FIRM_GRIP_CAPTURE";
         case CALIB_STEP5_VALIDATION:    return "STATISTICAL_VALIDATION";
         case CALIB_COMPLETED:           return "COMPLETED";
@@ -85,7 +89,17 @@ uint8_t PersonalCalibration::getStepProgressPct() const {
     uint32_t elapsed = millis() - _stepStartTimeMs;
     uint32_t targetDuration = 1000;
 
-    if (_currentStep == CALIB_STEP2_NEUTRAL_WRIST) {
+    if (_currentStep == CALIB_PREP_STEP1_REST) {
+        targetDuration = Config::CalibrationDefaults::PREP_STEP1_REST_MS;
+    } else if (_currentStep == CALIB_PREP_STEP2_POSTURE) {
+        targetDuration = Config::CalibrationDefaults::PREP_STEP2_POSTURE_MS;
+    } else if (_currentStep == CALIB_PREP_STEP3_RELAXED) {
+        targetDuration = Config::CalibrationDefaults::PREP_STEP3_RELAXED_MS;
+    } else if (_currentStep == CALIB_PREP_STEP4_FIRM) {
+        targetDuration = Config::CalibrationDefaults::PREP_STEP4_FIRM_MS;
+    } else if (_currentStep == CALIB_STEP1_PREFLIGHT) {
+        targetDuration = Config::CalibrationDefaults::PREFLIGHT_RECORD_MS;
+    } else if (_currentStep == CALIB_STEP2_NEUTRAL_WRIST) {
         targetDuration = Config::CalibrationDefaults::NEUTRAL_RECORD_DURATION_MS;
     } else if (_currentStep == CALIB_STEP3_RELAXED_GRIP || _currentStep == CALIB_STEP4_FIRM_GRIP) {
         targetDuration = Config::CalibrationDefaults::GRIP_RECORD_DURATION_MS;
@@ -109,19 +123,31 @@ void PersonalCalibration::resetAccumulators() {
 void PersonalCalibration::startWizard() {
     resetAccumulators();
     memset(_failureReason, 0, sizeof(_failureReason));
-    _currentStep = CALIB_STEP1_PREFLIGHT;
+    _currentStep = CALIB_PREP_STEP1_REST;
 }
 
 void PersonalCalibration::advanceStep() {
     resetAccumulators();
     switch (_currentStep) {
+        case CALIB_PREP_STEP1_REST:
+            _currentStep = CALIB_STEP1_PREFLIGHT;
+            break;
         case CALIB_STEP1_PREFLIGHT:
+            _currentStep = CALIB_PREP_STEP2_POSTURE;
+            break;
+        case CALIB_PREP_STEP2_POSTURE:
             _currentStep = CALIB_STEP2_NEUTRAL_WRIST;
             break;
         case CALIB_STEP2_NEUTRAL_WRIST:
+            _currentStep = CALIB_PREP_STEP3_RELAXED;
+            break;
+        case CALIB_PREP_STEP3_RELAXED:
             _currentStep = CALIB_STEP3_RELAXED_GRIP;
             break;
         case CALIB_STEP3_RELAXED_GRIP:
+            _currentStep = CALIB_PREP_STEP4_FIRM;
+            break;
+        case CALIB_PREP_STEP4_FIRM:
             _currentStep = CALIB_STEP4_FIRM_GRIP;
             break;
         case CALIB_STEP4_FIRM_GRIP:
@@ -150,6 +176,34 @@ void PersonalCalibration::processSample(const RawSensorData& raw, const Processe
     uint32_t elapsed = millis() - _stepStartTimeMs;
 
     switch (_currentStep) {
+        case CALIB_PREP_STEP1_REST: {
+            if (elapsed >= Config::CalibrationDefaults::PREP_STEP1_REST_MS) {
+                advanceStep();
+            }
+            break;
+        }
+
+        case CALIB_PREP_STEP2_POSTURE: {
+            if (elapsed >= Config::CalibrationDefaults::PREP_STEP2_POSTURE_MS) {
+                advanceStep();
+            }
+            break;
+        }
+
+        case CALIB_PREP_STEP3_RELAXED: {
+            if (elapsed >= Config::CalibrationDefaults::PREP_STEP3_RELAXED_MS) {
+                advanceStep();
+            }
+            break;
+        }
+
+        case CALIB_PREP_STEP4_FIRM: {
+            if (elapsed >= Config::CalibrationDefaults::PREP_STEP4_FIRM_MS) {
+                advanceStep();
+            }
+            break;
+        }
+
         case CALIB_STEP1_PREFLIGHT: {
             // Verify sensors are operational and resting
             if (raw.fsrVoltage > 2.5f) {

@@ -107,3 +107,59 @@ Offset   Field                 Type        Description
 1. **CRC Verification on Boot:** During initialization, the firmware calculates the CRC32 of the stored blob. If a single bit is corrupted or uninitialized, loading fails immediately.
 2. **Version Matching:** If `schemaVersion != 1`, the stored blob is rejected.
 3. **Conservative Default Fallback:** If uncalibrated or corrupted, the system falls back to safe constants (`Relaxed = 350`, `Firm = 2200`, `Neutral = 0.0 deg`), and sets `isValid = false`. All telemetry explicitly warns the user that factory fallback thresholds are in use.
+
+---
+
+## 5. Human-Computer Interaction (HCI) & Motor Transition Buffers
+
+Guided calibration for wearable biomechanical sensors introduces unique HCI constraints that do not exist in traditional desktop software. When physical movement is required, naive auto-advancing algorithms corrupt sensor data and cause high failure rates.
+
+### 5.1 Biomechanical & Motor Latency (Fitts’s Law)
+Transitioning between physical postures (e.g. from an arm resting limply at the side to picking up a dumbbell, steadying the wrist, and entering an isometric hold) requires human motor planning and kinetic stabilization. 
+- In fitness exercises, reaching for and steadying a free weight takes **2.5 to 4.5 seconds**.
+- If a sensor system samples at $t=0$ immediately upon state transition, involuntary motion tremors contaminate the variance calculation, triggering premature rejections such as `"Excessive wrist movement"` or `"FSR baseline too high"`.
+
+### 5.2 The 5s Initial + 3s Inter-Step Buffer Protocol
+To resolve this, GRIPGUARD enforces explicit transition buffers:
+
+```
+[Start Calibration] 
+       |
+       v (User Readiness Check: "Ready — Start")
+[PREP STEP 1] (5.0s countdown) -> User positions arm hanging relaxed at side
+       |
+       v (Zero samples accumulated during prep)
+[STEP 1: PREFLIGHT] (1.5s sample) -> Baseline noise floor verification
+       |
+       v
+[PREP STEP 2] (3.0s countdown) -> User picks up dumbbell, establishes pre-curl starting stance
+       |
+       v
+[STEP 2: NEUTRAL WRIST] (3.0s sample) -> Records mean pitch and roll zero-reference
+       |
+       v
+[PREP STEP 3] (3.0s countdown) -> User relaxes fingers on dumbbell ("hold an egg")
+       |
+       v
+[STEP 3: RELAXED GRIP] (2.0s sample) -> Records unloaded contact ADC
+       |
+       v
+[PREP STEP 4] (3.0s countdown) -> User prepares for maximum intentional squeeze
+       |
+       v
+[STEP 4: FIRM GRIP] (2.0s sample) -> Records active squeeze ADC
+       |
+       v
+[STEP 5: VALIDATION] (<0.5s) -> Computes separation ratio and derives rep thresholds
+```
+
+### 5.3 Transient Masking & Accumulator Isolation
+During all `PREP_*` states:
+1. No sensor moments (`_sumPitch`, `_sumRoll`, `_sumADC`) are accumulated into statistical accumulators.
+2. Involuntary movements, sensor shifts, and hand readjustments are completely masked.
+3. Upon transitioning from a prep buffer to an active measurement window, `resetAccumulators()` executes immediately, ensuring 100% clean, stabilized sensor frames.
+
+### 5.4 Multimodal Feedforward (Sight & Sound)
+When holding heavy free weights, users cannot look at fine text or click a mouse:
+- **Visual Feedforward:** Large, glowing countdown badges (`5... 4... 3... 2... 1...`) and target posture illustrations telegraph exact timing.
+- **Auditory Feedforward:** Web Audio sine pips (`880 Hz`, 80 ms) for preparation ticks, followed by an energetic confirmation chime (`1320 Hz`, 150 ms) when active recording begins, allowing entirely hands-free and eyes-free operation.

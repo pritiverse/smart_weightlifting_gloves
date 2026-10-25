@@ -175,8 +175,14 @@ namespace Config {
     // 5. CALIBRATION DEFAULT BOUNDS
     // ========================================================================
     namespace CalibrationDefaults {
-        constexpr uint32_t NEUTRAL_RECORD_DURATION_MS = 3000; // 3 seconds
-        constexpr uint32_t GRIP_RECORD_DURATION_MS    = 2000; // 2 seconds
+        // HCI Transition & Preparation Durations
+        constexpr uint32_t PREP_STEP1_REST_MS    = 5000; // 5.0s initial prep to get ready and rest arm
+        constexpr uint32_t PREP_STEP2_POSTURE_MS = 4500; // 4.5s transition buffer to pick up dumbbell & hold starting position
+        constexpr uint32_t PREP_STEP3_RELAXED_MS = 3500; // 3.5s transition buffer to relax fingers ("hold an egg")
+        constexpr uint32_t PREP_STEP4_FIRM_MS    = 3500; // 3.5s transition buffer to prepare firm squeeze
+        constexpr uint32_t PREFLIGHT_RECORD_MS   = 1500; // 1.5s active preflight verification
+        constexpr uint32_t NEUTRAL_RECORD_DURATION_MS = 3000; // 3.0s active neutral wrist hold
+        constexpr uint32_t GRIP_RECORD_DURATION_MS    = 2500; // 2.5s active grip capture
         
         // Minimum statistical separation ratio between relaxed and firm grip
         // Separation Ratio = (Mean_Firm - Mean_Relaxed) / (Std_Firm + Std_Relaxed)

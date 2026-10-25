@@ -13,10 +13,14 @@
  */
 enum CalibrationStep {
     CALIB_IDLE = 0,
-    CALIB_STEP1_PREFLIGHT,       // Verify sensor communication & signal stability
-    CALIB_STEP2_NEUTRAL_WRIST,   // Hold resting neutral wrist posture (3 sec)
-    CALIB_STEP3_RELAXED_GRIP,    // Hold relaxed, unloaded grip (2 sec)
-    CALIB_STEP4_FIRM_GRIP,       // Apply firm, repeatable squeeze (2 sec)
+    CALIB_PREP_STEP1_REST,       // HCI Prep (5.0s): Hang arm relaxed
+    CALIB_STEP1_PREFLIGHT,       // Verify sensor communication & signal stability (1.5s)
+    CALIB_PREP_STEP2_POSTURE,    // HCI Transition (4.5s): Pick up dumbbell, hold starting curl posture
+    CALIB_STEP2_NEUTRAL_WRIST,   // Active hold recording (3.0s)
+    CALIB_PREP_STEP3_RELAXED,    // HCI Transition (3.5s): Relax fingers on handle ("hold an egg")
+    CALIB_STEP3_RELAXED_GRIP,    // Active baseline recording (2.5s)
+    CALIB_PREP_STEP4_FIRM,       // HCI Transition (3.5s): Prepare to squeeze firmly
+    CALIB_STEP4_FIRM_GRIP,       // Active squeeze capture (2.5s)
     CALIB_STEP5_VALIDATION,      // Check separation ratio & statistical quality
     CALIB_COMPLETED,             // Successfully validated and saved to NVS
     CALIB_FAILED                 // Inconsistent, unstable, or insufficient separation

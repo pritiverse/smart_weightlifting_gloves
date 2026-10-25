@@ -1,6 +1,6 @@
 import { TelemetryPacket, CalibrationProfile, DiagnosticsReport } from '../types';
 
-let deviceBaseUrl = 'http://192.168.4.1';
+let deviceBaseUrl = 'http://10.249.34.96';
 
 export const setApiHost = (host: string) => {
   deviceBaseUrl = host.startsWith('http') ? host : `http://${host}`;

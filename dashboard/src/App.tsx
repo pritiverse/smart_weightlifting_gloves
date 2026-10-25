@@ -6,6 +6,7 @@ import { SensorPanel } from './components/SensorPanel';
 import { ReliabilityCentre } from './components/ReliabilityCentre';
 import { SessionReport } from './components/SessionReport';
 import { CalibrationModal } from './components/CalibrationModal';
+import { InfoGuide } from './components/InfoGuide';
 import {
   fetchTelemetry,
   fetchCalibration,
@@ -27,21 +28,25 @@ export function App() {
   const [isCalibModalOpen, setIsCalibModalOpen] = useState(false);
   const [apiHost, setHostState] = useState(getApiHost());
   const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [sessionActive, setSessionActive] = useState(false);
 
   const prevValidCountRef = useRef(0);
   const prevRejCountRef = useRef(0);
+  const sessionActiveRef = useRef(false); // mirrors sessionActive for use inside stale closures
 
-  // 1. Session Timer
+  // 1. Session Timer — only runs while session is active
   useEffect(() => {
+    if (!sessionActive) return;
     const timer = setInterval(() => {
       setSessionSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [sessionActive]);
 
-  // 2. High-Speed 10 Hz Real-Time Telemetry Polling Loop
+  // 2. Optimized Real-Time Telemetry Polling Loop (Paced 250ms, non-overlapping)
   useEffect(() => {
     let isSubscribed = true;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
 
     const poll = async () => {
       const startTime = performance.now();
@@ -60,14 +65,15 @@ export function App() {
           return next.length > 80 ? next.slice(next.length - 80) : next;
         });
 
-        // Detect newly completed repetition
+        // Detect newly completed repetition — only log when session is active
         const newValid = data.repetition.valid_count > prevValidCountRef.current;
         const newRej = data.repetition.rejected_count > prevRejCountRef.current;
 
-        if (newValid || newRej) {
-          prevValidCountRef.current = data.repetition.valid_count;
-          prevRejCountRef.current = data.repetition.rejected_count;
+        // Always keep refs in sync so we don't get phantom reps on Start
+        prevValidCountRef.current = data.repetition.valid_count;
+        prevRejCountRef.current = data.repetition.rejected_count;
 
+        if (sessionActiveRef.current && (newValid || newRej)) {
           const totalRepNum = data.repetition.valid_count + data.repetition.rejected_count;
           const newItem: HistoricalRepItem = {
             id: Date.now(),
@@ -86,15 +92,18 @@ export function App() {
         if (isSubscribed) {
           setIsConnected(false);
         }
+      } finally {
+        if (isSubscribed) {
+          timerId = setTimeout(poll, 250);
+        }
       }
     };
 
     poll();
-    const interval = setInterval(poll, 100);
 
     return () => {
       isSubscribed = false;
-      clearInterval(interval);
+      if (timerId) clearTimeout(timerId);
     };
   }, []);
 
@@ -110,12 +119,29 @@ export function App() {
     setHostState(getApiHost());
   };
 
+  const handleStartSession = () => {
+    // Sync refs to current firmware counts so we don't retroactively log old reps
+    if (telemetry) {
+      prevValidCountRef.current = telemetry.repetition.valid_count;
+      prevRejCountRef.current   = telemetry.repetition.rejected_count;
+    }
+    sessionActiveRef.current = true;
+    setSessionActive(true);
+  };
+
+  const handleStopSession = () => {
+    sessionActiveRef.current = false;
+    setSessionActive(false);
+  };
+
   const handleResetReps = async () => {
     await postResetReps();
     prevValidCountRef.current = 0;
     prevRejCountRef.current = 0;
+    sessionActiveRef.current = false;
     setRepHistory([]);
     setSessionSeconds(0);
+    setSessionActive(false);
   };
 
   const handleSelectExercise = async (profile: 'bicep_curl' | 'wrist_extension' | 'dumbbell_press') => {
@@ -196,6 +222,9 @@ export function App() {
           <OverviewCards
             repetition={telemetry.repetition}
             sessionElapsedSeconds={sessionSeconds}
+            sessionActive={sessionActive}
+            onStartSession={handleStartSession}
+            onStopSession={handleStopSession}
             onResetReps={handleResetReps}
             onSelectExercise={handleSelectExercise}
           />
@@ -243,6 +272,8 @@ export function App() {
         onCancelCalibration={handleCancelCalibration}
         onResetCalibration={handleResetCalibration}
       />
+      {/* Floating Help Guide */}
+      <InfoGuide />
     </div>
   );
 }

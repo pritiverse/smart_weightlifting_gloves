@@ -54,3 +54,33 @@ This manual covers diagnostic steps and corrective procedures for common electri
   - Click the **Target** button in the dashboard header to update the IP address to match the ESP32 Station IP shown in the Serial Monitor.
 - **Quick Evaluation Fallback:**
   - Click the **○ Offline Sim Mode** button in the dashboard header to immediately evaluate all interactive features with synthetic biomechanical telemetry.
+
+---
+
+## 4. ESP32 Slowness, High Latency & Frequent Disconnections
+
+### Why "Clearing Cache" Does Not Fix ESP32 Slowness
+Unlike a phone or PC, the ESP32 does not have an operating system cache or temp folder that accumulates junk. The ESP32 hardware cache is a tiny instruction cache on the silicon, and NVS flash only stores key-value pairs (like calibration). Erasing flash or NVS does not fix runtime lag or Wi-Fi dropouts.
+
+### Root Causes & Solutions:
+
+1. **Wi-Fi Modem Sleep (Default Power-Saving Mode)**
+   - **Root Cause:** By default, the ESP32 radio sleeps between beacon intervals to conserve power. This introduces 100–300 ms latency spikes, packet drops, and timeouts.
+   - **Fix:** Call `WiFi.setSleep(false);` immediately upon initialization in `NetworkManager.cpp`. This keeps the RF front-end fully awake and responsive.
+
+2. **Excessive Dashboard Polling Rate (Overlapping HTTP Requests)**
+   - **Root Cause:** The Arduino `WebServer` is synchronous and single-threaded. Firing HTTP GET requests at 10 Hz (100 ms) via `setInterval` causes requests to overlap whenever Wi-Fi latency fluctuates, exhausting TCP socket buffers and dropping the connection.
+   - **Fix:** Use sequential polling with 250 ms pacing (`setTimeout` chained after the previous request completes) in `App.tsx`.
+
+3. **Dual AP + Station Mode Interference (`WIFI_AP_STA`)**
+   - **Root Cause:** The ESP32 has a single physical Wi-Fi radio. If Station mode cannot connect to your home router, the background driver continuously scans channels, which temporarily disconnects devices connected to `GripGuard-AP`.
+   - **Fix:** If Station Wi-Fi is unconfigured or disconnected, `NetworkManager.cpp` automatically falls back to pure `WIFI_AP` mode to eliminate channel-hopping drops.
+
+4. **Power Supply Brownout (USB Cable & Current Spikes)**
+   - **Root Cause:** Wi-Fi transmit bursts draw sudden 300–500 mA spikes. Thin USB cables, unpowered USB hubs, or breadboard power rails can cause the 3.3V rail to dip below 2.7V, triggering a silent brownout reset.
+   - **Diagnostic:** Check the Serial Monitor at 115200 baud for `Brownout detector was triggered` or `rst:0x10 (RTCWDT_RTC_RESET)`.
+   - **Fix:** Use a high-quality, short data USB cable connected directly to the PC motherboard or a 5V/1A+ wall adapter. Add a 10 µF – 100 µF capacitor across the ESP32 3V3 and GND rails if prototyping on a breadboard.
+
+5. **Dynamic String Heap Fragmentation**
+   - **Root Cause:** Repeated string concatenation (`String json += ...`) across rapid telemetry responses fragments the FreeRTOS heap memory.
+   - **Fix:** Pre-allocate string memory with `json.reserve(1024)` in `NetworkManager.cpp` before appending keys.
