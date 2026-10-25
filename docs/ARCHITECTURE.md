@@ -52,18 +52,19 @@ This document describes the component boundaries, execution timing, data flow, m
 |    - Concurrent SoftAP (192.168.4.1) + Station Wi-Fi mode                                              |
 |    - CORS-enabled versioned endpoints: /api/telemetry, /api/calibration, /api/exercise, etc.           |
 +========================================================================================================+
-                                                    | Wi-Fi HTTP / REST (10 Hz Polling)
+                                                    | Wi-Fi HTTP / REST (Paced 250ms Polling, 4 Hz)
                                                     v
 +========================================================================================================+
 |                                    PRESENTATION LAYER (React / Vite)                                   |
 |                                                                                                        |
 |  - Dark-mode sports-science interface ("GRIPGUARD — Adaptive Lifting Intelligence")                   |
 |  - Real-time SVG movement trace with ROM threshold markers                                             |
-|  - Dynamic FSR grip pressure gauge and wrist orientation gauges                                        |
+|  - Dynamic FSR relative palm pressure gauge and wrist orientation gauges                               |
 |  - Sensor reliability centre with live confidence scores and transparent fault alerts                  |
-|  - 5-step interactive personal calibration wizard modal                                                |
+|  - 5-step interactive personal calibration wizard modal with HCI motor prep buffers                    |
+|  - Floating InfoGuide contextual intelligence help modal detailing rep phases and rules                |
 |  - Session repetition history table with one-click CSV and JSON data export                            |
-|  - Client-side realistic biomechanical simulation mode for immediate offline evaluation                |
+|  - Pure real-time hardware telemetry streaming with dual-source network selection (Home vs AP)        |
 +========================================================================================================+
 ```
 
@@ -89,5 +90,7 @@ To ensure bounded latency and avoid CPU starvation, the firmware adheres to stri
 ## 3. Data Flow & Synchronization
 
 1. **Hardware Sampling Slice:** Every $20,000\mu\text{s}$, a non-blocking check against `micros()` triggers a synchronized read of MPU6050 and FSR.
-2. **Snapshot Caching:** The acquired `RawSensorData` and computed `ProcessedSensorData` are copied atomically into `NetworkManager`'s cached buffer.
+2. **Snapshot Caching:** The acquired `RawSensorData` and computed `ProcessedSensorData` are copied into `NetworkManager`'s cached buffer. String output buffers are pre-allocated with `reserve()` to completely prevent heap fragmentation.
 3. **HTTP Client Decoupling:** When a browser queries `GET /api/telemetry`, the server serializes the cached snapshot directly without taking locks or pausing the 50 Hz acquisition cycle.
+4. **RF & Power Resilience:** Wi-Fi modem sleep is explicitly disabled (`WiFi.setSleep(false)`), eliminating 100–300 ms beacon latency spikes and dropped packets. When Station Wi-Fi is unconfigured or fails to associate, the radio automatically locks into pure `WIFI_AP` mode, eliminating background channel hopping that would otherwise disconnect clients.
+

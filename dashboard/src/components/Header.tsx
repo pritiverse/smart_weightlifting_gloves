@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { HealthData } from '../types';
 
 const HOME_IP  = 'http://10.249.34.96';
 const GLOVE_AP = 'http://192.168.4.1';
@@ -9,6 +10,7 @@ interface HeaderProps {
   onOpenCalibration: () => void;
   apiHost: string;
   onUpdateHost: (host: string) => void;
+  health?: HealthData;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,6 +19,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCalibration,
   apiHost,
   onUpdateHost,
+  health,
 }) => {
   const [showCustom, setShowCustom] = useState(false);
   const [customVal, setCustomVal]   = useState(apiHost);
@@ -162,6 +165,44 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </form>
           )}
+        </div>
+
+        {/* ── Live Sensor Hardware Status Indicator ── */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '20px',
+          padding: '6px 14px',
+          fontSize: '11px',
+          fontWeight: 600,
+        }}>
+          <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Sensors:</span>
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
+            color: isConnected && health?.mpu === 'HEALTHY' ? 'var(--emerald-valid)' : 'var(--crimson-fault)'
+          }}>
+            <span style={{
+              width: '7px', height: '7px', borderRadius: '50%',
+              background: isConnected && health?.mpu === 'HEALTHY' ? 'var(--emerald-valid)' : 'var(--crimson-fault)',
+              display: 'inline-block'
+            }} />
+            IMU {isConnected ? (health?.mpu === 'HEALTHY' ? 'Online' : health?.mpu || 'Degraded') : 'Offline'}
+          </span>
+          <span style={{ color: 'var(--border-subtle)' }}>|</span>
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
+            color: isConnected && health?.fsr === 'HEALTHY' ? 'var(--emerald-valid)' : 'var(--crimson-fault)'
+          }}>
+            <span style={{
+              width: '7px', height: '7px', borderRadius: '50%',
+              background: isConnected && health?.fsr === 'HEALTHY' ? 'var(--emerald-valid)' : 'var(--crimson-fault)',
+              display: 'inline-block'
+            }} />
+            FSR {isConnected ? (health?.fsr === 'HEALTHY' ? 'Online' : health?.fsr || 'Degraded') : 'Offline'}
+          </span>
         </div>
 
         {/* ── Connection Status ── */}

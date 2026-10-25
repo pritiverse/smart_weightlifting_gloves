@@ -41,6 +41,7 @@ uint32_t lastSerialReportTimeMs = 0;
 CalibrationStep lastObservedCalStep = CALIB_IDLE;
 RepState lastObservedRepState = REP_STATE_IDLE;
 SensorHealthState lastObservedHealth = HEALTH_STATE_HEALTHY;
+bool csvLoggingActive = false;
 
 void printSystemBanner() {
     Serial.println();
@@ -100,6 +101,7 @@ void handleSerialCommands() {
                 Serial.println(F("  i     : Inject simulated I2C Dropout fault (Test)"));
                 Serial.println(F("  k     : Clear injected simulated faults"));
                 Serial.println(F("  s     : Run manual I2C bus scan"));
+                Serial.println(F("  l     : Toggle lightweight CSV telemetry streaming"));
                 Serial.println(F("--------------------------------------\n"));
                 break;
             case 'w':
@@ -166,6 +168,16 @@ void handleSerialCommands() {
                 }
                 break;
             }
+            case 'l':
+            case 'L':
+                csvLoggingActive = !csvLoggingActive;
+                if (csvLoggingActive) {
+                    Serial.println(F("\n--- CSV STREAMING ACTIVE (10 Hz) ---"));
+                    Serial.println(F("timestamp_ms,pitch_deg,roll_deg,fsr_adc,norm_grip_pct,health_state,rep_state,reject_reason"));
+                } else {
+                    Serial.println(F("[LOG] CSV streaming disabled. Restored JSON streaming."));
+                }
+                break;
             default:
                 break;
         }
@@ -292,28 +304,40 @@ void loop() {
         const DiagnosticReport& diag = faultEngine.getReport();
         const RepetitionStats& repStats = repEngine.getStats();
 
-        // Output structured, clean JSON line
-        Serial.print(F("{\"seq\":"));
-        Serial.print(currentSample.sequenceId);
-        Serial.print(F(",\"t_ms\":"));
-        Serial.print(currentSample.timestampMs);
-        Serial.print(F(",\"pitch\":"));
-        Serial.print(processedSample.pitchDeg, 1);
-        Serial.print(F(",\"roll\":"));
-        Serial.print(processedSample.rollDeg, 1);
-        Serial.print(F(",\"grip_pct\":"));
-        Serial.print((int)(processedSample.normalizedGrip * 100.0f));
-        Serial.print(F(",\"rep_state\":\""));
-        Serial.print(repEngine.getStateName());
-        Serial.print(F("\",\"reps_valid\":"));
-        Serial.print(repStats.totalValidReps);
-        Serial.print(F(",\"reps_rej\":"));
-        Serial.print(repStats.totalRejectedReps);
-        Serial.print(F(",\"health\":\""));
-        Serial.print(faultEngine.getHealthStateName(diag.overallHealth));
-        Serial.print(F("\",\"conf_pct\":"));
-        Serial.print((int)diag.assessmentConfidencePct);
-        Serial.println(F("}"));
+        if (csvLoggingActive) {
+            // Lightweight Comma-Separated Values stream for simple debugging and analysis
+            Serial.print(currentSample.timestampMs); Serial.print(',');
+            Serial.print(processedSample.pitchDeg, 1); Serial.print(',');
+            Serial.print(processedSample.rollDeg, 1); Serial.print(',');
+            Serial.print(currentSample.fsrRawADC); Serial.print(',');
+            Serial.print((int)(processedSample.normalizedGrip * 100.0f)); Serial.print(',');
+            Serial.print(faultEngine.getHealthStateName(diag.overallHealth)); Serial.print(',');
+            Serial.print(repEngine.getStateName()); Serial.print(',');
+            Serial.println(repEngine.getRejectionReasonName(repStats.lastRejectionReason));
+        } else {
+            // Output structured, clean JSON line
+            Serial.print(F("{\"seq\":"));
+            Serial.print(currentSample.sequenceId);
+            Serial.print(F(",\"t_ms\":"));
+            Serial.print(currentSample.timestampMs);
+            Serial.print(F(",\"pitch\":"));
+            Serial.print(processedSample.pitchDeg, 1);
+            Serial.print(F(",\"roll\":"));
+            Serial.print(processedSample.rollDeg, 1);
+            Serial.print(F(",\"grip_pct\":"));
+            Serial.print((int)(processedSample.normalizedGrip * 100.0f));
+            Serial.print(F(",\"rep_state\":\""));
+            Serial.print(repEngine.getStateName());
+            Serial.print(F("\",\"reps_valid\":"));
+            Serial.print(repStats.totalValidReps);
+            Serial.print(F(",\"reps_rej\":"));
+            Serial.print(repStats.totalRejectedReps);
+            Serial.print(F(",\"health\":\""));
+            Serial.print(faultEngine.getHealthStateName(diag.overallHealth));
+            Serial.print(F("\",\"conf_pct\":"));
+            Serial.print((int)diag.assessmentConfidencePct);
+            Serial.println(F("}"));
+        }
     }
 
     // 4. Process Serial Interactive Commands

@@ -42,9 +42,9 @@ export const SessionReport: React.FC<SessionReportProps> = ({ history, onExportC
               <tr style={{ color: 'var(--text-dim)', borderBottom: '1px solid var(--border-subtle)' }}>
                 <th style={{ padding: '6px 8px' }}>REP #</th>
                 <th style={{ padding: '6px 8px' }}>STATUS</th>
-                <th style={{ padding: '6px 8px' }}>ROM</th>
-                <th style={{ padding: '6px 8px' }}>DURATION</th>
-                <th style={{ padding: '6px 8px' }}>GRIP</th>
+                <th style={{ padding: '6px 8px' }}>EXCURSION</th>
+                <th style={{ padding: '6px 8px' }}>TEMPO / DUR</th>
+                <th style={{ padding: '6px 8px' }}>PALM PRESS.</th>
                 <th style={{ padding: '6px 8px' }}>EXPLANATION</th>
               </tr>
             </thead>

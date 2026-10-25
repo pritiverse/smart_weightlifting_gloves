@@ -33,7 +33,7 @@ export const MovementTrace: React.FC<MovementTraceProps> = ({ repetition, histor
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cyan-primary)" strokeWidth="2.5">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
           </svg>
-          Real-Time Movement Trajectory (Pitch Excursion)
+          Real-Time Forearm Angular Excursion
         </h2>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Peak: {repetition.last_rep_rom_deg}°</span>
@@ -50,8 +50,8 @@ export const MovementTrace: React.FC<MovementTraceProps> = ({ repetition, histor
           
           {/* ROM Target Line (40 deg) */}
           <line x1={padding} y1={romThresholdY} x2={width - padding} y2={romThresholdY} stroke="rgba(0, 230, 118, 0.4)" strokeDasharray="5 5" />
-          <text x={width - padding - 65} y={romThresholdY - 6} fill="var(--emerald-valid)" fontSize="9" fontWeight="700">
-            MIN ROM (40°)
+          <text x={width - padding - 100} y={romThresholdY - 6} fill="var(--emerald-valid)" fontSize="9" fontWeight="700">
+            Target Excursion (40°)
           </text>
 
           {/* Real-time Movement Path */}

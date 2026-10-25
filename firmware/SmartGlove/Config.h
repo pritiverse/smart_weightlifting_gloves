@@ -231,6 +231,15 @@ namespace Config {
          * Justification: Prevents duplicate double-counting from mechanical oscillation at turnaround.
          */
         constexpr uint32_t REFRACTORY_PERIOD_MS = 450;
+
+        /**
+         * Purpose: Sustained low-grip debounce sample count.
+         * Units: Samples (integer)
+         * Default: 15 samples (15 * 20 ms = 300 ms confirmation window)
+         * Justification: Prevents transient, momentary sensor drops or knurling shifts from 
+         * falsely rejecting an otherwise valid repetition. Low grip must persist for >= 300 ms.
+         */
+        constexpr uint16_t SUSTAINED_LOW_GRIP_SAMPLES = 15;
     }
 
 } // namespace Config

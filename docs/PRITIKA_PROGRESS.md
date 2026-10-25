@@ -3,7 +3,7 @@
 - **Project:** Smart Weightlifting Glove: Personalized Rep Validation and Sensor Reliability Intelligence
 - **Assigned Scope:** Embedded firmware (ESP32), signal processing, personal calibration, repetition state machine, sensor reliability & fault detection engine, web dashboard, documentation, and tests.
 - **Current Phase:** All Implementation Milestones (1 through 10) Completed and Verified
-- **Current Branch:** `Pritika`
+- **Current Branch:** `main`
 - **Git Commit Policy:** Commits strictly prohibited by agent; all changes remain as unstaged working-tree modifications for user review.
 
 ---
@@ -146,4 +146,11 @@
   - Refactored dashboard `App.tsx` polling loop to chained `setTimeout` polling with 250 ms pacing, preventing concurrent request overlap and socket exhaustion on the ESP32 `WebServer`.
   - Authored comprehensive Section 4 in `docs/TROUBLESHOOTING.md` documenting brownout detection, power surge considerations, modem sleep, and heap hygiene.
   - Re-verified full test suite (`python tests/simulation/test_rep_validation.py` - 6/6 passed) and production build (`npm run build` - 0 errors).
+- **Core Reliability, Diagnostics & Honest UI Upgrades (Deadline Engineering Push):**
+  - **FSR Sustained Debounce:** Implemented 15-sample (~300 ms) confirmation window (`SUSTAINED_LOW_GRIP_SAMPLES` in `Config.h`, `_sustainedLowGripSamples` in `RepEngine.h/.cpp`). Transient finger repositioning or bar knurling shifts no longer erroneously reject good repetitions.
+  - **Lightweight Serial CSV Streamer:** Added non-blocking 10 Hz CSV streamer to `SmartGlove.ino` (`timestamp,pitch,roll,fsr,health,rep_state,reject_reason`), toggleable via serial input `'l'`, zero dynamic heap allocations.
+  - **Expanded Repetition-FSM Test Suite:** Updated `tests/simulation/test_rep_validation.py` with 7 comprehensive validation scenarios (full curl, partial curl, brief FSR dip tolerated, sustained dip rejected, sensor fault recovery, stationary hand zero counts, refractory lockout). Verified 7/7 passing (100.0%).
+  - **Honest Biomechanical Terminology:** Replaced misleading labels throughout dashboard components (`MovementTrace.tsx`, `OverviewCards.tsx`, `SensorPanel.tsx`, `SessionReport.tsx`) with accurate scientific terms: *"Wrist / Forearm Orientation"*, *"Relative Palm Pressure"*, *"Forearm Angular Excursion"*, *"Target Excursion"*, *"Repetitions Detected"*, and *"Duration / Tempo"*.
+  - **Live Sensor Connection Badges:** Added real-time status indicators in dashboard `Header.tsx` for IMU (`MPU6050`) and `FSR` hardware health (`Online` / `Offline`).
+  - **Full Documentation Audit:** Crosschecked and synchronized all 14 markdown files across the repository (`README.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, etc.) to reflect `main` branch, 250 ms non-overlapping telemetry polling, disabled modem sleep, and `InfoGuide.tsx` capabilities. Verified with clean production build (`npm --prefix dashboard run build` in 891ms).
 

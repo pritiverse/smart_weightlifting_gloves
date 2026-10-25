@@ -127,6 +127,7 @@ private:
     // Grip integration accumulators
     float _gripAccumulator;
     uint32_t _gripSampleCount;
+    uint16_t _sustainedLowGripSamples;
     bool _gripFailedDuringConcentric;
     bool _sensorFaultDuringRep;
 

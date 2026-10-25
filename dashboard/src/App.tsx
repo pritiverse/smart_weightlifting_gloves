@@ -214,6 +214,7 @@ export function App() {
         onOpenCalibration={() => setIsCalibModalOpen(true)}
         apiHost={apiHost}
         onUpdateHost={handleUpdateHost}
+        health={telemetry?.health}
       />
 
       {telemetry ? (

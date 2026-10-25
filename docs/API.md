@@ -6,7 +6,7 @@ This document details the network architecture, asynchronous HTTP server, versio
 
 ## 1. Network Topology & Dual-Mode Wi-Fi
 
-The ESP32 firmware operates in concurrent **Access Point + Station (AP+STA)** mode:
+The ESP32 firmware operates in intelligent **Access Point + Station (AP+STA)** mode with pure AP fallback:
 1. **Standalone Access Point (SoftAP):**
    - **SSID:** `GripGuard-AP`
    - **Password:** `smartglove123`
@@ -14,9 +14,11 @@ The ESP32 firmware operates in concurrent **Access Point + Station (AP+STA)** mo
    - **Advantage:** Functions anywhere (gym floor, outdoor track) with zero dependence on a local router.
 2. **Station Mode (Optional):**
    - Configured via `secrets.h` (from `secrets.example.h`).
-   - Connects to local lab/home Wi-Fi network and obtains a local DHCP IP (e.g., `http://192.168.1.150`).
-3. **Decoupled Asynchronous Execution:**
+   - Connects to local lab/home Wi-Fi network and obtains a local DHCP IP (e.g., `http://192.168.1.150`). If unconfigured or association fails, the firmware automatically locks into pure `WIFI_AP` mode to eliminate background channel hopping.
+3. **Decoupled Asynchronous Execution & Low-Latency RF:**
    - `netManager.update()` is called non-blockingly. Sensor sampling remains strictly timed at 50 Hz via `micros()`, guaranteeing that slow network requests or browser disconnections **never** starve sensor acquisition.
+   - Wi-Fi modem sleep is disabled (`WiFi.setSleep(false)`), eliminating 100–300 ms packet latency jitter and socket exhaustion.
+   - JSON string outputs pre-allocate memory with `reserve()` to completely prevent FreeRTOS heap fragmentation.
 
 ---
 

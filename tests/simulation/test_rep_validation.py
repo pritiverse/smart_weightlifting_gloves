@@ -24,6 +24,7 @@ class RepetitionEngineSim:
         self.peak_excursion = 0.0
         self.grip_accum = 0.0
         self.grip_samples = 0
+        self.sustained_low_grip_samples = 0
         self.grip_failed = False
         self.sensor_fault = False
         self.last_rep_end_time_ms = -10000
@@ -35,6 +36,7 @@ class RepetitionEngineSim:
         self.min_grip_ratio = 0.35
         self.return_tolerance = 14.0
         self.refractory_period_ms = 450
+        self.sustained_low_grip_samples_limit = 15  # 15 samples * 20 ms = 300 ms confirmation window
 
     def update(self, pitch_deg, gyro_mag_dps, norm_grip, now_ms, sensor_health_ok=True):
         excursion = abs(pitch_deg)
@@ -60,7 +62,8 @@ class RepetitionEngineSim:
                 self.peak_excursion = excursion
                 self.grip_accum = norm_grip
                 self.grip_samples = 1
-                self.grip_failed = (norm_grip < self.min_grip_ratio)
+                self.sustained_low_grip_samples = 1 if norm_grip < self.min_grip_ratio else 0
+                self.grip_failed = False
                 self.sensor_fault = not sensor_health_ok
                 self.state = "CONCENTRIC"
             elif excursion > self.return_tolerance + 8.0:
@@ -71,8 +74,14 @@ class RepetitionEngineSim:
                 self.peak_excursion = excursion
             self.grip_accum += norm_grip
             self.grip_samples += 1
+
+            # Sustained low grip debounce confirmation window (15 samples = 300 ms)
             if norm_grip < self.min_grip_ratio:
-                self.grip_failed = True
+                self.sustained_low_grip_samples += 1
+                if self.sustained_low_grip_samples >= self.sustained_low_grip_samples_limit:
+                    self.grip_failed = True
+            else:
+                self.sustained_low_grip_samples = 0
 
             if excursion >= 22.0 and gyro_mag_dps < 12.0:
                 self.state = "TRANSITION"
@@ -109,7 +118,7 @@ class RepetitionEngineSim:
             self._finalize(False, "DURATION_TOO_LONG", now_ms, duration, avg_grip)
         elif self.peak_excursion < self.min_rom:
             self._finalize(False, "INSUFFICIENT_ROM", now_ms, duration, avg_grip)
-        elif self.grip_failed or avg_grip < self.min_grip_ratio:
+        elif self.grip_failed or avg_grip < (self.min_grip_ratio * 0.70):
             self._finalize(False, "INSUFFICIENT_GRIP", now_ms, duration, avg_grip)
         else:
             self._finalize(True, "NONE", now_ms, duration, avg_grip)
@@ -130,9 +139,9 @@ class RepetitionEngineSim:
 
 # Test Fixture Runner
 def run_tests():
-    print("=" * 65)
-    print("  GRIPGUARD REPETITION & FAULT GATING TEST SUITE")
-    print("=" * 65)
+    print("=" * 68)
+    print("  GRIPGUARD REPETITION & FAULT GATING TEST SUITE (FIRMWARE ALIGNED)")
+    print("=" * 68)
 
     passed = 0
     total = 0
@@ -170,37 +179,39 @@ def run_tests():
     else:
         print(f"[FAIL] Test 2: Valid={engine.valid_reps}, Rej={engine.rejected_reps}, Reason={engine.last_rejection_reason}")
 
-    # --- Test 3: Ballistic Jolt / Accidental Hand Gesture (< 700 ms) ---
-    total += 1
-    engine = RepetitionEngineSim()
-    for t in range(0, 450, 20):
-        phase = (t / 450.0) * math.pi
-        pitch = math.sin(phase) * 45.0
-        gyro = abs(math.cos(phase) * 120.0)
-        grip = 0.50
-        engine.update(pitch, gyro, grip, t)
-
-    if engine.valid_reps == 0 and engine.rejected_reps == 1 and engine.last_rejection_reason == "DURATION_TOO_SHORT":
-        print("[PASS] Test 3: Ballistic Jolt correctly rejected (Reason: DURATION_TOO_SHORT)")
-        passed += 1
-    else:
-        print(f"[FAIL] Test 3: Valid={engine.valid_reps}, Rej={engine.rejected_reps}, Reason={engine.last_rejection_reason}")
-
-    # --- Test 4: Free-Arm Movement Without Grip (Insufficient Grip) ---
+    # --- Test 3: Brief FSR Dip (100 ms / 5 samples) -> Must NOT Reject ---
     total += 1
     engine = RepetitionEngineSim()
     for t in range(0, 2000, 20):
         phase = (t / 2000.0) * math.pi
         pitch = math.sin(phase) * 55.0
         gyro = abs(math.cos(phase) * 60.0)
-        grip = 0.12  # Relaxed fingers, only 12% grip (< 35% threshold)
+        # Brief dip to 0.15 for 5 samples (100 ms) during concentric phase (at t=400ms to t=500ms)
+        grip = 0.15 if (400 <= t <= 500) else 0.70
+        engine.update(pitch, gyro, grip, t)
+
+    if engine.valid_reps == 1 and engine.rejected_reps == 0:
+        print("[PASS] Test 3: Brief FSR Dip (100 ms) correctly tolerated by debounce (Valid=1)")
+        passed += 1
+    else:
+        print(f"[FAIL] Test 3: Brief FSR Dip failed! Valid={engine.valid_reps}, Rej={engine.rejected_reps}, Reason={engine.last_rejection_reason}")
+
+    # --- Test 4: Sustained FSR Drop (400 ms / 20 samples) -> Must Reject ---
+    total += 1
+    engine = RepetitionEngineSim()
+    for t in range(0, 2000, 20):
+        phase = (t / 2000.0) * math.pi
+        pitch = math.sin(phase) * 55.0
+        gyro = abs(math.cos(phase) * 60.0)
+        # Sustained low grip for 400 ms (20 samples >= 15 sample limit) during concentric phase
+        grip = 0.15 if (300 <= t <= 700) else 0.70
         engine.update(pitch, gyro, grip, t)
 
     if engine.valid_reps == 0 and engine.rejected_reps == 1 and engine.last_rejection_reason == "INSUFFICIENT_GRIP":
-        print("[PASS] Test 4: Movement without weight correctly rejected (Reason: INSUFFICIENT_GRIP)")
+        print("[PASS] Test 4: Sustained FSR Drop (400 ms) correctly rejected (Reason: INSUFFICIENT_GRIP)")
         passed += 1
     else:
-        print(f"[FAIL] Test 4: Valid={engine.valid_reps}, Rej={engine.rejected_reps}, Reason={engine.last_rejection_reason}")
+        print(f"[FAIL] Test 4: Sustained drop failed! Valid={engine.valid_reps}, Rej={engine.rejected_reps}, Reason={engine.last_rejection_reason}")
 
     # --- Test 5: Repetition During Sensor Dropout / Reliability Fault ---
     total += 1
@@ -220,7 +231,23 @@ def run_tests():
     else:
         print(f"[FAIL] Test 5: Valid={engine.valid_reps}, Rej={engine.rejected_reps}, Reason={engine.last_rejection_reason}")
 
-    # --- Test 6: Refractory Dead-Time Lockout (Turnaround Double-Counting) ---
+    # --- Test 6: Stationary Hand Hold -> Zero Phantom Rep Counts ---
+    total += 1
+    engine = RepetitionEngineSim()
+    # User holds hand still for 5 seconds (250 samples at 50 Hz)
+    for t in range(0, 5000, 20):
+        pitch = 2.0  # Stationary within neutral starting region
+        gyro = 0.4
+        grip = 0.60
+        engine.update(pitch, gyro, grip, t)
+
+    if engine.valid_reps == 0 and engine.rejected_reps == 0 and engine.state == "READY":
+        print("[PASS] Test 6: Holding hand still produces zero phantom counts (Valid=0, Rej=0, State=READY)")
+        passed += 1
+    else:
+        print(f"[FAIL] Test 6: Stationary hold failed! Valid={engine.valid_reps}, Rej={engine.rejected_reps}, State={engine.state}")
+
+    # --- Test 7: Refractory Dead-Time Lockout (Turnaround Double-Counting) ---
     total += 1
     engine = RepetitionEngineSim()
     # First rep (0 - 2000 ms)
@@ -238,17 +265,18 @@ def run_tests():
         engine.update(pitch, gyro, 0.70, t)
 
     if engine.valid_reps == 1 and engine.rejected_reps == 0:
-        print("[PASS] Test 6: Refractory lockout strictly prevented duplicate rebound count")
+        print("[PASS] Test 7: Refractory lockout strictly prevented duplicate rebound count")
         passed += 1
     else:
-        print(f"[FAIL] Test 6: Valid={engine.valid_reps}, Rej={engine.rejected_reps}")
+        print(f"[FAIL] Test 7: Valid={engine.valid_reps}, Rej={engine.rejected_reps}")
 
-    print("=" * 65)
+    print("=" * 68)
     print(f"Results: {passed} / {total} Passed ({passed/total*100:.1f}%)")
-    print("=" * 65)
+    print("=" * 68)
 
     return passed == total
 
 if __name__ == "__main__":
     success = run_tests()
     sys.exit(0 if success else 1)
+

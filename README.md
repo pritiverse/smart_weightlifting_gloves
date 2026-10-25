@@ -4,7 +4,7 @@
 [![Target](https://img.shields.io/badge/Hardware-ESP32%20%7C%20MPU6050%20%7C%20FSR-cyan.svg)](#hardware-wiring)
 [![Firmware](https://img.shields.io/badge/Firmware-Arduino%20C%2B%2B%20%7C%2050%20Hz-blue.svg)](firmware/SmartGlove/)
 [![Frontend](https://img.shields.io/badge/Dashboard-React%2018%20%7C%20Vite%20%7C%20TypeScript-purple.svg)](dashboard/)
-[![Branch](https://img.shields.io/badge/Git%20Branch-Pritika-green.svg)](#git-compliance)
+[![Branch](https://img.shields.io/badge/Git%20Branch-main-green.svg)](#git-compliance)
 
 ---
 
@@ -16,7 +16,7 @@
 2. **Dynamic Grip-Eligibility Gating:** Requires active, confirmed grip pressure ($\ge 35\%\text{--}45\%$ of personal firm squeeze) throughout the concentric lift phase, rejecting gestures and unloaded arm swings.
 3. **5-Step Personal Calibration Wizard:** Learns each lifter's resting neutral posture and calculates a Gaussian statistical separation ratio ($(\mu_{firm} - \mu_{relaxed})/(\sigma_{firm} + \sigma_{relaxed}) \ge 3.0$) before saving to ESP32 non-volatile storage with CRC32 integrity checks.
 4. **Transparent Sensor Reliability Engine:** Continuously diagnoses MPU6050 and FSR health across 4 fault classes (Dropout, Drift, Context-Aware Stuck-At, Gain Loss) with a $1500\text{ ms}$ continuous stability recovery gate. Repetitions during sensor dropouts are gated or qualified.
-5. **Decoupled Asynchronous REST Telemetry:** Dual-mode Wi-Fi (SoftAP `192.168.4.1` + Station) exposes versioned JSON APIs without stalling the 50 Hz sensor sampling loop.
+5. **Decoupled Asynchronous REST Telemetry:** Dual-mode Wi-Fi (SoftAP `192.168.4.1` + Station) exposes versioned JSON APIs without stalling the 50 Hz sensor sampling loop. Wi-Fi modem sleep is disabled to ensure responsive, low-latency transmission.
 6. **Dark-Mode Sports-Science Dashboard:** Responsive React 18 + Vite + TypeScript web interface featuring live SVG trajectory plotting, grip gauges, diagnostic confidence bars, and one-click CSV/JSON session exports.
 
 ---
@@ -58,6 +58,7 @@ smart-weightlifting-glove/
 │       ├── FaultDetection.cpp
 │       ├── NetworkManager.h          # Dual Wi-Fi (SoftAP/STA) & REST API server
 │       ├── NetworkManager.cpp
+│       ├── Arduino_Compat.h          # Desktop static analysis compatibility shims
 │       └── secrets.example.h         # Wi-Fi credential isolation template
 ├── dashboard/
 │   ├── package.json                  # React 18, Vite, TypeScript dependencies
@@ -65,12 +66,13 @@ smart-weightlifting-glove/
 │   ├── index.html
 │   └── src/
 │       ├── main.tsx
-│       ├── App.tsx                   # Main app with 10 Hz polling and export routines
+│       ├── App.tsx                   # Main app with paced 250ms polling and export routines
 │       ├── types.ts                  # TypeScript interfaces matching ESP32 JSON schema
-│       ├── services/api.ts           # REST API client & offline simulation mode
+│       ├── services/api.ts           # REST API client for live hardware streaming
 │       ├── styles/index.css          # Sports-science dark mode Vanilla CSS design system
 │       └── components/
-│           ├── Header.tsx            # Connectivity status, target IP, and wizard button
+│           ├── Header.tsx            # Connectivity status, network source toggle, and wizard button
+│           ├── InfoGuide.tsx         # Floating contextual intelligence guide & help modal
 │           ├── OverviewCards.tsx     # Hero valid/rejected counters, timer, and profile switcher
 │           ├── MovementTrace.tsx     # Real-time SVG movement trajectory & ROM markers
 │           ├── SensorPanel.tsx       # FSR grip pressure gauge and raw IMU values

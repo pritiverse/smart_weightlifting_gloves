@@ -12,6 +12,7 @@ RepetitionEngine::RepetitionEngine()
       _peakExcursionDeg(0.0f),
       _gripAccumulator(0.0f),
       _gripSampleCount(0),
+      _sustainedLowGripSamples(0),
       _gripFailedDuringConcentric(false),
       _sensorFaultDuringRep(false) {
     resetCounters();
@@ -20,6 +21,7 @@ RepetitionEngine::RepetitionEngine()
 
 void RepetitionEngine::init() {
     _currentState = REP_STATE_IDLE;
+    _sustainedLowGripSamples = 0;
     resetCounters();
     setExerciseProfile(EXERCISE_BICEP_CURL);
 }
@@ -185,7 +187,8 @@ void RepetitionEngine::update(const ProcessedSensorData& proc, const Calibration
 
                 _gripAccumulator = proc.normalizedGrip;
                 _gripSampleCount = 1;
-                _gripFailedDuringConcentric = (proc.normalizedGrip < _activeProfile.minGripRatio);
+                _sustainedLowGripSamples = (proc.normalizedGrip < _activeProfile.minGripRatio) ? 1 : 0;
+                _gripFailedDuringConcentric = false;
                 _sensorFaultDuringRep = !sensorHealthOk;
 
                 transitionTo(REP_STATE_CONCENTRIC_OR_OUTBOUND);
@@ -209,9 +212,15 @@ void RepetitionEngine::update(const ProcessedSensorData& proc, const Calibration
             _gripSampleCount++;
             _stats.currentRepMeanGrip = _gripAccumulator / _gripSampleCount;
 
-            // Monitor grip eligibility during concentric phase
+            // Monitor grip eligibility during concentric phase with debounce confirmation window (15 samples = 300 ms)
             if (proc.normalizedGrip < _activeProfile.minGripRatio) {
-                _gripFailedDuringConcentric = true;
+                _sustainedLowGripSamples++;
+                if (_sustainedLowGripSamples >= Config::RepEngineDefaults::SUSTAINED_LOW_GRIP_SAMPLES) {
+                    _gripFailedDuringConcentric = true;
+                }
+            } else {
+                // Reset debounce counter if grip returns above threshold
+                _sustainedLowGripSamples = 0;
             }
 
             // Detect peak transition: Gyro velocity drops below threshold or reverses
@@ -297,7 +306,8 @@ void RepetitionEngine::update(const ProcessedSensorData& proc, const Calibration
             }
 
             // 5. Grip Eligibility Rule (Unloaded / dropped bar)
-            if (_gripFailedDuringConcentric || avgGrip < _activeProfile.minGripRatio) {
+            // Rejects if grip was sustained low (>= 300 ms) during concentric ascent, or mean rep grip is severely deficient
+            if (_gripFailedDuringConcentric || avgGrip < (_activeProfile.minGripRatio * 0.70f)) {
                 finalizeRep(false, REJECT_INSUFFICIENT_GRIP, totalDuration, _peakExcursionDeg, avgGrip);
                 return;
             }

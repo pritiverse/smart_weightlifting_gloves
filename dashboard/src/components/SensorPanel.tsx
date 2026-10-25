@@ -31,10 +31,10 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ grip, orientation, imu
         </span>
       </div>
 
-      {/* FSR Grip Pressure Bar */}
+      {/* FSR Relative Palm Pressure Bar */}
       <div className="grip-bar-container">
         <div className="grip-bar-header">
-          <span style={{ color: 'var(--text-muted)' }}>FSR Relative Grip Pressure</span>
+          <span style={{ color: 'var(--text-muted)' }}>Relative Palm Pressure</span>
           <span style={{ color: 'var(--cyan-primary)', fontFamily: 'var(--font-mono)' }}>
             {grip.normalized_pct}% ({grip.voltage}V / {grip.raw_adc} ADC)
           </span>
@@ -50,7 +50,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ grip, orientation, imu
         {/* Orientation Tilt Gauge */}
         <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: 'var(--radius-md)' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-            Estimated Wrist Tilt
+            Wrist / Forearm Orientation
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
             <div>

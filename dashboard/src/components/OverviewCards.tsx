@@ -157,9 +157,9 @@ export const OverviewCards: React.FC<OverviewCardsProps> = ({
       <div className="metric-counters">
         {/* Valid Reps */}
         <div className="counter-card valid" style={{ opacity: sessionActive ? 1 : 0.5, transition: 'opacity 0.3s' }}>
-          <div className="counter-label">Validated Repetitions</div>
+          <div className="counter-label">Repetitions Detected</div>
           <div className="counter-value">{repetition.valid_count}</div>
-          <div className="counter-sub">Motion &amp; Grip Verified</div>
+          <div className="counter-sub">Motion &amp; Palm Pressure Verified</div>
         </div>
 
         {/* Rejected Reps */}
