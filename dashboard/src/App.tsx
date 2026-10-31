@@ -25,14 +25,22 @@ export function App() {
   const [repHistory, setRepHistory] = useState<HistoricalRepItem[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [latencyMs, setLatencyMs] = useState(0);
-  const [isCalibModalOpen, setIsCalibModalOpen] = useState(false);
+  const [isCalibModalOpen, setIsCalibModalOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('calib') === '1' || params.get('modal') === 'calibration';
+    }
+    return false;
+  });
   const [apiHost, setHostState] = useState(getApiHost());
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [sessionActive, setSessionActive] = useState(false);
+  const [latchedRepState, setLatchedRepState] = useState<string | null>(null);
 
   const prevValidCountRef = useRef(0);
   const prevRejCountRef = useRef(0);
-  const sessionActiveRef = useRef(false); // mirrors sessionActive for use inside stale closures
+  const sessionActiveRef = useRef(false);
+  const latchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 1. Session Timer — only runs while session is active
   useEffect(() => {
@@ -59,21 +67,38 @@ export function App() {
         setIsConnected(true);
         setTelemetry(data);
 
-        // Append to real-time trajectory buffer (max 80 samples)
+        // Append to real-time 3D excursion trajectory buffer (max 80 samples)
         setHistoryPitch((prev) => {
-          const next = [...prev, data.orientation.pitch_deg];
+          const next = [...prev, data.repetition.current_excursion_deg];
           return next.length > 80 ? next.slice(next.length - 80) : next;
         });
 
-        // Detect newly completed repetition — only log when session is active
+        // Detect newly completed repetition
         const newValid = data.repetition.valid_count > prevValidCountRef.current;
         const newRej = data.repetition.rejected_count > prevRejCountRef.current;
 
-        // Always keep refs in sync so we don't get phantom reps on Start
+        // Visual Latch: Hold VALID_REP / REJECTED_REP state for 2.2 seconds so user sees it clearly
+        if (newValid) {
+          setLatchedRepState('VALID_REP');
+          if (latchTimeoutRef.current) clearTimeout(latchTimeoutRef.current);
+          latchTimeoutRef.current = setTimeout(() => setLatchedRepState(null), 2200);
+        } else if (newRej) {
+          setLatchedRepState('REJECTED_REP');
+          if (latchTimeoutRef.current) clearTimeout(latchTimeoutRef.current);
+          latchTimeoutRef.current = setTimeout(() => setLatchedRepState(null), 2200);
+        }
+
+        // Auto-activate session timer on first detected rep
+        if ((newValid || newRej) && !sessionActiveRef.current) {
+          sessionActiveRef.current = true;
+          setSessionActive(true);
+        }
+
+        // Always keep refs in sync
         prevValidCountRef.current = data.repetition.valid_count;
         prevRejCountRef.current = data.repetition.rejected_count;
 
-        if (sessionActiveRef.current && (newValid || newRej)) {
+        if (newValid || newRej) {
           const totalRepNum = data.repetition.valid_count + data.repetition.rejected_count;
           const newItem: HistoricalRepItem = {
             id: Date.now(),
@@ -84,6 +109,9 @@ export function App() {
             durationMs: data.repetition.last_rep_duration_ms,
             peakRomDeg: data.repetition.last_rep_rom_deg,
             avgGripPct: data.repetition.last_rep_grip_pct,
+            couplingRho: data.repetition.coupling_rho,
+            confidencePct: data.repetition.confidence_pct,
+            isFatigued: data.repetition.is_fatigued,
             rejectionReason: data.repetition.last_rejection_reason,
           };
           setRepHistory((prev) => [newItem, ...prev]);
@@ -152,6 +180,10 @@ export function App() {
     await postCalibrateAction('start');
   };
 
+  const handleNextCalibrationStep = async () => {
+    await postCalibrateAction('ready');
+  };
+
   const handleCancelCalibration = async () => {
     await postCalibrateAction('cancel');
   };
@@ -164,7 +196,7 @@ export function App() {
 
   const handleExportCSV = () => {
     if (repHistory.length === 0) return;
-    const headers = ['Rep #', 'Timestamp', 'Exercise', 'Status', 'Duration (ms)', 'Peak ROM (deg)', 'Avg Grip (%)', 'Rejection Reason'];
+    const headers = ['Rep #', 'Timestamp', 'Exercise', 'Status', 'Duration (ms)', 'Peak ROM (deg)', 'Avg Grip (%)', 'Coupling (rho)', 'Confidence (%)', 'Fatigued', 'Rejection Reason'];
     const rows = repHistory.map((r) => [
       r.repNumber,
       `"${r.timestamp}"`,
@@ -173,6 +205,9 @@ export function App() {
       r.durationMs,
       r.peakRomDeg,
       r.avgGripPct,
+      (r.couplingRho ?? 0.0).toFixed(3),
+      r.confidencePct ?? 85,
+      r.isFatigued ? 'YES' : 'NO',
       `"${r.rejectionReason}"`,
     ]);
     const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
@@ -221,7 +256,10 @@ export function App() {
         <div className="dashboard-grid">
           {/* Hero Counter Cards */}
           <OverviewCards
-            repetition={telemetry.repetition}
+            repetition={{
+              ...telemetry.repetition,
+              state: (latchedRepState as any) || telemetry.repetition.state,
+            }}
             sessionElapsedSeconds={sessionSeconds}
             sessionActive={sessionActive}
             onStartSession={handleStartSession}
@@ -270,6 +308,7 @@ export function App() {
         calibration={telemetry?.calibration || { is_calibrated: false, step: 'IDLE', progress_pct: 0 }}
         profile={calibProfile}
         onStartCalibration={handleStartCalibration}
+        onNextStep={handleNextCalibrationStep}
         onCancelCalibration={handleCancelCalibration}
         onResetCalibration={handleResetCalibration}
       />

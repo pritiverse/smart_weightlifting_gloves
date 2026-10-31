@@ -160,3 +160,27 @@ All engineering decisions are documented in [`docs/DECISIONS.md`](docs/DECISIONS
 - **Commits Created:** **0** (strictly adheres to rule: all changes remain unstaged in working tree for user review)
 - **Pushes Performed:** **0**
 - **Other Branches Modified:** **None**
+
+
+1. Coupled Kinetic-Kinematic Gating (True Repetition Qualification)
+The Problem with Existing Trackers: Commercial smartwatches and IMU pods detect reps solely via kinematics (accelerometer/gyro peaks). They cannot differentiate between lifting a 25 kg barbell and waving an empty hand through the air.
+GripGuard’s Novelty: Repetitions are verified across two distinct physical domains simultaneously: $$\text{Repetition Valid} \iff \text{Kinematic Excursion } (\Delta\theta \ge \theta_{\min}) ;\land; \text{Kinetic Pressure } (P_{\text{palm}} \ge P_{\text{thresh}})$$ If an athlete drops palm pressure during the concentric ascent (indicating form failure, bar slippage, or cheating), the rep is rejected with an explicit biomechanical reason (INSUFFICIENT_GRIP).
+2. Debounced Biomechanical Hysteresis (Tolerating Knurling Shifts)
+The Problem with Naive Sensor Thresholds: A single 20 ms ADC dip caused by hand readjustment on bar knurling or sweat would falsely disqualify a legitimate, heavy lift.
+GripGuard’s Novelty: The firmware employs an asymmetric 15-sample (~300 ms) sustained low-grip confirmation window (SUSTAINED_LOW_GRIP_SAMPLES). Transient grip micro-adjustments are tolerated, while genuine mechanical failure is strictly caught and flagged.
+3. Autonomous On-Device Sensor Fault Qualification
+The Problem with Academic Wearables: Wearables often blindly feed raw ADC/I2C registers into movement logic. If a wire breaks or a sensor saturates, the software counts phantom reps or hangs.
+GripGuard’s Novelty: A dedicated 50 Hz Sensor Health Engine runs in parallel with the repetition FSM, continuously inspecting 4 fault classes:
+I2C bus lockup / timeout
+ADC rail saturation (short circuit / pullup detachment)
+Zero-variance dead signal (frozen sensor)
+Biomechanically implausible angular rates ($> 2000^\circ/\text{s}$) If a fault occurs, rep counting is locked out with SENSOR_UNRELIABLE, and only unlocks after a 1500 ms clean hysteresis recovery window.
+4. Guided HCI Calibration with Statistical Quality Gating
+The Problem: FSR sensors suffer from non-linearities, glove fit variance, and individual hand anatomy. Fixed ADC thresholds fail across different lifters.
+GripGuard’s Novelty: A 5-step guided calibration protocol incorporating motor preparation buffers (Fitts's Law / motor latency):
+5-second initial rest buffer + 3-second motor transition buffers to eliminate neuromuscular transit noise.
+Automatically verifies calibration quality using a Statistical Separation Ratio: $$S_r = \frac{\mu_{\text{firm}} - \mu_{\text{relaxed}}}{\sigma_{\text{firm}} + \sigma_{\text{relaxed}}} \ge 3.0$$
+Stores verified calibration profiles to ESP32 Non-Volatile Storage (NVS) with a CRC32 integrity checksum.
+5. Edge-First, Zero-Cloud Sports Science Architecture
+The Novelty: All signal conditioning (variance-based zero-velocity gyro bias cancellation, complementary orientation fusion, asymmetric FSR low-pass filter, and 8-state rep FSM) executes directly on the ESP32 microcontroller at 50 Hz.
+Works completely offline in gym basements via a self-hosted Wi-Fi Access Point (GripGuard-AP) with non-blocking serial CSV telemetry streaming for sports-science biomechanics research.

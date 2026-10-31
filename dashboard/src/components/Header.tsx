@@ -3,6 +3,7 @@ import { HealthData } from '../types';
 
 const HOME_IP  = 'http://10.249.34.96';
 const GLOVE_AP = 'http://192.168.4.1';
+const SIM_IP   = 'http://localhost:8000';
 
 interface HeaderProps {
   isConnected: boolean;
@@ -26,9 +27,10 @@ export const Header: React.FC<HeaderProps> = ({
 
   const isHome  = apiHost === HOME_IP;
   const isGlove = apiHost === GLOVE_AP;
+  const isSim   = apiHost === SIM_IP || apiHost.includes('localhost:8000') || apiHost.includes('127.0.0.1:8000');
 
-  const handleSwitch = (target: 'home' | 'glove') => {
-    onUpdateHost(target === 'home' ? HOME_IP : GLOVE_AP);
+  const handleSwitch = (target: 'home' | 'glove' | 'sim') => {
+    onUpdateHost(target === 'home' ? HOME_IP : target === 'glove' ? GLOVE_AP : SIM_IP);
     setShowCustom(false);
   };
 
@@ -117,6 +119,29 @@ export const Header: React.FC<HeaderProps> = ({
                   <circle cx="12" cy="20" r="1" fill="currentColor"/>
                 </svg>
                 Glove AP
+              </button>
+              <button
+                onClick={() => handleSwitch('sim')}
+                title={`Simulation Server — ${SIM_IP}`}
+                style={{
+                  padding: '5px 13px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  transition: 'all 0.2s',
+                  background: isSim ? 'linear-gradient(135deg, #00f2fe, #4facfe)' : 'transparent',
+                  color: isSim ? '#040814' : 'var(--text-muted)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Simulator
               </button>
             </div>
 

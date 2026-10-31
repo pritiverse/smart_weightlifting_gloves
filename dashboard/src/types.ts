@@ -20,6 +20,7 @@ export interface GripData {
   filtered_adc: number;
   voltage: number;
   normalized_pct: number;
+  schmitt_armed?: boolean;
 }
 
 export interface RepetitionData {
@@ -33,6 +34,13 @@ export interface RepetitionData {
   last_rep_rom_deg: number;
   last_rep_grip_pct: number;
   last_rejection_reason: string;
+  coupling_rho?: number;
+  confidence_pct?: number;
+  is_fatigued?: boolean;
+  fatigue_index_pct?: number;
+  adaptive_min_rom_deg?: number;
+  pending_candidates?: number;
+  is_set_armed?: boolean;
 }
 
 export interface HealthData {
@@ -49,6 +57,7 @@ export interface CalibrationSummary {
   is_calibrated: boolean;
   step: string;
   progress_pct: number;
+  failure_reason?: string;
 }
 
 export interface TelemetryPacket {
@@ -104,5 +113,8 @@ export interface HistoricalRepItem {
   durationMs: number;
   peakRomDeg: number;
   avgGripPct: number;
+  couplingRho?: number;
+  confidencePct?: number;
+  isFatigued?: boolean;
   rejectionReason: string;
 }

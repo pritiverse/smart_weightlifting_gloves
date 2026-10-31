@@ -1,6 +1,8 @@
 #ifndef CALIBRATION_H
 #define CALIBRATION_H
 
+#include <math.h>
+#include <cstring>
 #include "Config.h"
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Preferences.h>
@@ -27,18 +29,19 @@ enum CalibrationStep {
 };
 
 /**
- * Persistent Personal Calibration Profile
+ * Persistent Personal Calibration Profile (Schema v2)
  * Stored in ESP32 Non-Volatile Storage (Preferences / NVS)
+ * Packed to guarantee deterministic byte alignment across compilers and CRC consistency.
  */
+#pragma pack(push, 1)
 struct CalibrationProfile {
     uint32_t magicHeader;        // 0x47524950 ("GRIP")
-    uint16_t schemaVersion;      // 1 (v1.0)
-    uint32_t calibratedTimeMs;   // System uptime when calibrated
+    uint16_t schemaVersion;      // 2 (Schema v2.0 - Gravity vector representation)
+    uint32_t calibratedTimeMs;   // Milliseconds uptime when calibration was validated and committed to NVS (0 if fallback/uncalibrated)
 
-    // Neutral Wrist Reference Posture
-    float neutralPitchDeg;       // Mean resting pitch
-    float neutralRollDeg;        // Mean resting roll
-    float postureStabilityStd;   // Standard deviation during neutral hold
+    // Neutral Wrist Reference Gravity Unit Vector (|neutralG| = 1.0)
+    float neutralG[3];           // (gx, gy, gz) in sensor frame
+    float angularSpreadDeg;      // Angular spread / stability std during neutral hold (deg)
 
     // Grip Reference Baselines (12-bit ADC 0 - 4095)
     uint16_t fsrRelaxedMeanADC;
@@ -53,7 +56,43 @@ struct CalibrationProfile {
 
     // Integrity & Validity
     bool isValid;
-    uint32_t crc32;
+    uint32_t crc32;              // IEEE 802.3 CRC32 over preceding fields
+};
+#pragma pack(pop)
+
+/**
+ * Numerically stable Welford accumulator for computing running mean and variance
+ */
+struct WelfordAccumulator {
+    uint32_t count;
+    double mean;
+    double M2;
+
+    void reset() {
+        count = 0;
+        mean = 0.0;
+        M2 = 0.0;
+    }
+
+    void update(double x) {
+        count++;
+        double delta = x - mean;
+        mean += delta / (double)count;
+        double delta2 = x - mean;
+        M2 += delta * delta2;
+    }
+
+    double getMean() const {
+        return mean;
+    }
+
+    double getVariance() const {
+        return (count > 1) ? (M2 / (double)count) : 0.0;
+    }
+
+    double getStdDev() const {
+        return sqrt(getVariance());
+    }
 };
 
 class PersonalCalibration {
@@ -61,7 +100,7 @@ public:
     PersonalCalibration();
 
     /**
-     * Initialize NVS storage, load stored calibration profile, verify CRC32.
+     * Initialize NVS storage, load stored calibration profile, verify CRC32 and schema version 2.
      * Falls back to conservative default profile if uncalibrated or corrupted.
      */
     bool init();
@@ -70,7 +109,7 @@ public:
      * Calibration Wizard Control
      */
     void startWizard();
-    void advanceStep();
+    void confirmReady();
     void abortWizard(const char* reason = "User aborted");
 
     /**
@@ -103,20 +142,23 @@ public:
 private:
     CalibrationStep _currentStep;
     CalibrationProfile _profile;
+    CalibrationProfile _stagingProfile;
+
+#if defined(ARDUINO_ARCH_ESP32)
     Preferences _prefs;
+#endif
 
-    char _failureReason[64];
+    char _failureReason[128];
     uint32_t _stepStartTimeMs;
-    uint32_t _sampleCount;
+    uint8_t _consecutiveBadSamples;
 
-    // Running accumulators for statistical moments (Welford's algorithm or sums)
-    float _sumPitch;
-    float _sumPitchSq;
-    float _sumRoll;
-    float _sumRollSq;
-    uint32_t _sumADC;
-    uint64_t _sumADCSq;
+    // Running accumulators for statistical moments using Welford's algorithm
+    WelfordAccumulator _gxAccumulator;
+    WelfordAccumulator _gyAccumulator;
+    WelfordAccumulator _gzAccumulator;
+    WelfordAccumulator _adcAccumulator;
 
+    void advanceStep();
     void resetAccumulators();
     void failCalibration(const char* reason);
 };

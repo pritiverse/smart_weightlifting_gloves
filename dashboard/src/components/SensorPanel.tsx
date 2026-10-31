@@ -34,13 +34,28 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ grip, orientation, imu
       {/* FSR Relative Palm Pressure Bar */}
       <div className="grip-bar-container">
         <div className="grip-bar-header">
-          <span style={{ color: 'var(--text-muted)' }}>Relative Palm Pressure</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>Relative Palm Pressure</span>
+            <span
+              style={{
+                fontSize: '10px',
+                fontWeight: 700,
+                padding: '1px 6px',
+                borderRadius: '10px',
+                background: (grip.schmitt_armed ?? (grip.normalized_pct >= 30)) ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255, 171, 0, 0.15)',
+                color: (grip.schmitt_armed ?? (grip.normalized_pct >= 30)) ? 'var(--emerald-valid)' : 'var(--amber-warning)',
+                border: `1px solid ${(grip.schmitt_armed ?? (grip.normalized_pct >= 30)) ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 171, 0, 0.3)'}`,
+              }}
+            >
+              {(grip.schmitt_armed ?? (grip.normalized_pct >= 30)) ? '⚡ SCHMITT GATE ARMED' : 'DISARMED (<20%)'}
+            </span>
+          </div>
           <span style={{ color: 'var(--cyan-primary)', fontFamily: 'var(--font-mono)' }}>
             {grip.normalized_pct}% ({grip.voltage}V / {grip.raw_adc} ADC)
           </span>
         </div>
         <div className="grip-progress-bg">
-          <div className="grip-eligibility-marker" style={{ left: '35%' }} />
+          <div className="grip-eligibility-marker" style={{ left: '35%' }} title="Concentric Grip Gate (35%)" />
           <div className="grip-progress-fill" style={{ width: `${Math.min(100, Math.max(0, grip.normalized_pct))}%` }} />
         </div>
       </div>
@@ -49,8 +64,13 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ grip, orientation, imu
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '16px' }}>
         {/* Orientation Tilt Gauge */}
         <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: 'var(--radius-md)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-            Wrist / Forearm Orientation
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              6-DoF Mahony Orientation
+            </span>
+            <span style={{ fontSize: '9px', color: 'var(--cyan-primary)', background: 'rgba(0,229,255,0.1)', padding: '1px 4px', borderRadius: '3px' }}>
+              ĝ Invariant
+            </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
             <div>

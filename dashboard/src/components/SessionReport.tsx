@@ -45,6 +45,8 @@ export const SessionReport: React.FC<SessionReportProps> = ({ history, onExportC
                 <th style={{ padding: '6px 8px' }}>EXCURSION</th>
                 <th style={{ padding: '6px 8px' }}>TEMPO / DUR</th>
                 <th style={{ padding: '6px 8px' }}>PALM PRESS.</th>
+                <th style={{ padding: '6px 8px' }}>COUPLING (ρ)</th>
+                <th style={{ padding: '6px 8px' }}>CONFIDENCE</th>
                 <th style={{ padding: '6px 8px' }}>EXPLANATION</th>
               </tr>
             </thead>
@@ -69,8 +71,14 @@ export const SessionReport: React.FC<SessionReportProps> = ({ history, onExportC
                   <td style={{ padding: '8px', color: '#fff' }}>{item.peakRomDeg}°</td>
                   <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{item.durationMs}ms</td>
                   <td style={{ padding: '8px', color: 'var(--cyan-primary)' }}>{item.avgGripPct}%</td>
-                  <td style={{ padding: '8px', color: 'var(--text-dim)', fontSize: '11px', fontFamily: 'var(--font-body)' }}>
-                    {item.rejectionReason}
+                  <td style={{ padding: '8px', color: (item.couplingRho ?? 0) >= 0.12 ? 'var(--emerald-valid)' : 'var(--amber-warning)' }}>
+                    {(item.couplingRho ?? 0.0).toFixed(3)}
+                  </td>
+                  <td style={{ padding: '8px', color: 'var(--cyan-primary)' }}>
+                    {item.confidencePct ?? 85}%
+                  </td>
+                  <td style={{ padding: '8px', color: item.isValid ? 'var(--emerald-valid)' : 'var(--text-dim)', fontSize: '11px', fontFamily: 'var(--font-body)' }}>
+                    {item.isValid ? (item.isFatigued ? '✓ Verified (⚠️ High Fatigue)' : '✓ Full ROM, Grip & Load Verified') : item.rejectionReason}
                   </td>
                 </tr>
               ))}

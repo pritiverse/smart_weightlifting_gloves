@@ -7,6 +7,7 @@ interface CalibrationModalProps {
   calibration: CalibrationSummary;
   profile: CalibrationProfile | null;
   onStartCalibration: () => void;
+  onNextStep?: () => void;
   onCancelCalibration: () => void;
   onResetCalibration: () => void;
 }
@@ -30,6 +31,17 @@ const playBeep = (freq = 880, durationMs = 80, enabled = true) => {
     osc.stop(ctx.currentTime + durationMs / 1000);
   } catch {
     // Audio context may be restricted by browser until user gesture
+  }
+};
+
+const playCelebration = (enabled = true) => {
+  if (!enabled) return;
+  try {
+    playBeep(1046.5, 90, enabled);
+    setTimeout(() => playBeep(1318.5, 110, enabled), 110);
+    setTimeout(() => playBeep(1567.98, 220, enabled), 240);
+  } catch {
+    // Ignore audio restriction
   }
 };
 
@@ -86,15 +98,15 @@ const STEPS: StepMeta[] = [
     id: 'relaxed_grip',
     firmwarePrep: 'PREP_RELAX_GRIP',
     firmwareSample: 'RELAXED_GRIP_BASELINE',
-    title: 'Relax Your Grip',
+    title: 'Relax Grip ("Egg Shell")',
     emoji: '🥚',
     color: '#a78bfa',
     prepDuration: 3, // 3 seconds transition buffer
-    sampleDuration: 2,
-    instruction: 'Barely touching the bar ("hold an egg"). Do not let go — just relax fingers.',
+    sampleDuration: 2.5,
+    instruction: 'Hold the dumbbell lightly with fingers resting gently like an eggshell. Do not squeeze.',
     detail: 'This teaches the glove what "unloaded contact" feels like so it can detect true grip onset.',
-    prepTip: 'Loosen your fingers on the dumbbell handle. Keep hand resting lightly on the bar.',
-    illustration: <img src="/calib_step3.jpg" alt="Barely touching the bar - hold an egg" style={{ width: '160px', height: '160px', objectFit: 'cover', borderRadius: '12px', display: 'block', margin: '0 auto', boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }} />,
+    prepTip: 'Hold the dumbbell, but keep your fingers as relaxed and gentle as possible ("hold an egg without breaking it").',
+    illustration: <img src="/calib_step3.jpg" alt="Barely touching the bar - hold an egg" style={{ width: '180px', height: '180px', objectFit: 'cover', borderRadius: '12px', display: 'block', margin: '0 auto', boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }} />,
   },
   {
     number: 4,
@@ -111,6 +123,21 @@ const STEPS: StepMeta[] = [
     prepTip: 'Get ready to squeeze the dumbbell firmly with full intent.',
     illustration: <img src="/calib_step4.jpg" alt="Squeeze firmly" style={{ width: '160px', height: '160px', objectFit: 'cover', borderRadius: '12px', display: 'block', margin: '0 auto', boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }} />,
   },
+  {
+    number: 5,
+    id: 'validation_commit',
+    firmwarePrep: 'PREP_VALIDATE',
+    firmwareSample: 'VALIDATION_AND_COMMIT',
+    title: 'Validate & Commit',
+    emoji: '💾',
+    color: '#10b981',
+    prepDuration: 2,
+    sampleDuration: 1.5,
+    instruction: 'Verifying separation ratio (Sr >= 3.0) and committing profile to NVS memory.',
+    detail: 'Calculates Gaussian separation ratio, IEEE 802.3 CRC32 checksum, and permanently activates workout profiling.',
+    prepTip: 'Hold steady while the microcontroller validates statistical integrity and writes to flash memory.',
+    illustration: <div style={{ width: '160px', height: '160px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', border: '2px solid #10b981', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0 auto', gap: '8px' }}><span style={{ fontSize: '48px' }}>💾</span><span style={{ fontSize: '12px', fontWeight: 800, color: '#10b981', letterSpacing: '0.04em' }}>NVS COMMITTED</span></div>,
+  },
 ];
 
 export const CalibrationModal: React.FC<CalibrationModalProps> = ({
@@ -119,19 +146,18 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
   calibration,
   profile,
   onStartCalibration,
+  onNextStep,
   onCancelCalibration,
   onResetCalibration,
 }) => {
   // Sound toggle
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
-  // Readiness prompt state
-  const [isReadyPrompt, setIsReadyPrompt] = useState<boolean>(false);
-
   // Client-managed countdown buffer for transitions
   const [prepCountdown, setPrepCountdown] = useState<number | null>(null);
   const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
   const [isSampling, setIsSampling] = useState<boolean>(false);
+  const [justCompletedStep, setJustCompletedStep] = useState<number | null>(null);
 
   const prevStepRef = useRef<string>(calibration.step);
   const countdownIntervalRef = useRef<number | null>(null);
@@ -151,7 +177,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
   const isFailed = calibration.step === 'FAILED';
   const isRunning = !isIdle && !isDone && !isFailed;
 
-  // Track firmware step changes to trigger inter-step preparation and audio
+  // Track firmware step changes to trigger inter-step preparation and celebration
   useEffect(() => {
     const prev = prevStepRef.current;
     const curr = calibration.step;
@@ -164,52 +190,33 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
       }
       setPrepCountdown(null);
       setIsSampling(false);
+      if (isDone) {
+        playCelebration(soundEnabled);
+      }
       return;
     }
 
-    // Check if firmware is in an explicit PREP step
+    // Check if an active sampling step just successfully finished
+    const prevSampleIdx = STEPS.findIndex(s => s.firmwareSample === prev);
+    if (prevSampleIdx !== -1 && (curr.startsWith('PREP_') || curr === 'COMPLETED' || curr === 'VALIDATION_AND_COMMIT')) {
+      const finishedStepNum = STEPS[prevSampleIdx].number;
+      setJustCompletedStep(finishedStepNum);
+      playCelebration(soundEnabled);
+    }
+
+    // Firmware is in an explicit PREP step (waiting for user readiness)
     if (curr.startsWith('PREP_')) {
       setIsSampling(false);
       let stepIdx = 0;
-      let duration = 3;
-      if (curr === 'PREP_REST_ARM') {
-        stepIdx = 0;
-        duration = 5;
-      } else if (curr === 'PREP_START_POSITION') {
-        stepIdx = 1;
-        duration = 3;
-      } else if (curr === 'PREP_RELAX_GRIP') {
-        stepIdx = 2;
-        duration = 3;
-      } else if (curr === 'PREP_FIRM_GRIP') {
-        stepIdx = 3;
-        duration = 3;
-      }
+      if (curr === 'PREP_REST_ARM') stepIdx = 0;
+      else if (curr === 'PREP_START_POSITION') stepIdx = 1;
+      else if (curr === 'PREP_RELAX_GRIP') stepIdx = 2;
+      else if (curr === 'PREP_FIRM_GRIP') stepIdx = 3;
+      else if (curr === 'PREP_VALIDATE') stepIdx = 4;
 
       setActiveStepIndex(stepIdx);
-      setPrepCountdown(duration);
-      playBeep(880, 80, soundEnabled);
-
-      if (countdownIntervalRef.current) {
-        window.clearInterval(countdownIntervalRef.current);
-      }
-
-      let remaining = duration;
-      countdownIntervalRef.current = window.setInterval(() => {
-        remaining -= 1;
-        if (remaining > 0) {
-          setPrepCountdown(remaining);
-          playBeep(880, 80, soundEnabled);
-        } else {
-          setPrepCountdown(null);
-          setIsSampling(true);
-          playBeep(1320, 150, soundEnabled);
-          if (countdownIntervalRef.current) {
-            window.clearInterval(countdownIntervalRef.current);
-            countdownIntervalRef.current = null;
-          }
-        }
-      }, 1000);
+      // User-paced: DO NOT auto-countdown! Wait for user click.
+      setPrepCountdown(null);
       return;
     }
 
@@ -217,17 +224,40 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
     const matchedSampleStepIdx = STEPS.findIndex(s => s.firmwareSample === curr);
     if (matchedSampleStepIdx !== -1) {
       setActiveStepIndex(matchedSampleStepIdx);
-      if (prev.startsWith('PREP_') || prev !== curr) {
-        setIsSampling(true);
-        setPrepCountdown(null);
-      }
+      setIsSampling(true);
+      setPrepCountdown(null);
     }
-  }, [calibration.step, isRunning, soundEnabled]);
+  }, [calibration.step, isRunning, isDone, soundEnabled]);
 
-  // Handle user starting calibration
-  const handleStartClick = () => {
-    setIsReadyPrompt(false);
-    onStartCalibration();
+  // Handle user confirming readiness for current step
+  const handleReadyClick = () => {
+    setPrepCountdown(3);
+    playBeep(880, 80, soundEnabled);
+
+    if (countdownIntervalRef.current) {
+      window.clearInterval(countdownIntervalRef.current);
+    }
+
+    let remaining = 3;
+    countdownIntervalRef.current = window.setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        setPrepCountdown(remaining);
+        playBeep(880, 80, soundEnabled);
+      } else {
+        setPrepCountdown(null);
+        setIsSampling(true);
+        playBeep(1320, 160, soundEnabled);
+        if (countdownIntervalRef.current) {
+          window.clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+        // Tell firmware to start active sampling
+        if (onNextStep) {
+          onNextStep();
+        }
+      }
+    }, 1000);
   };
 
   if (!isOpen) return null;
@@ -235,6 +265,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
   const currentStep = STEPS[activeStepIndex] || STEPS[0];
   const stepNumber = currentStep.number;
   const isPrepState = prepCountdown !== null && prepCountdown > 0;
+  const isAwaitingUser = isRunning && calibration.step.startsWith('PREP_') && prepCountdown === null;
 
   return (
     <div className="modal-overlay">
@@ -247,7 +278,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
               ⚙️ Personal Calibration
             </h2>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
-              4 guided steps · 5s initial prep · 3s transition gaps
+              5 guided steps · 5s initial prep · 3s transition gaps
             </p>
           </div>
 
@@ -285,7 +316,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
           {isRunning && (
             <div style={{
               position: 'absolute', top: '16px', left: '10%',
-              width: `${((stepNumber - 1) / 3) * 80}%`,
+              width: `${((stepNumber - 1) / (STEPS.length - 1)) * 80}%`,
               height: '2px', background: 'var(--cyan-primary)', zIndex: 0, transition: 'width 0.4s ease',
             }} />
           )}
@@ -321,7 +352,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
         </div>
 
         {/* ── IDLE / DONE / FAILED STATES ── */}
-        {(isIdle || isDone || isFailed) && !isReadyPrompt && (
+        {(isIdle || isDone || isFailed) && (
           <div>
             {isDone && (
               <div style={{ background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.3)', borderRadius: '12px', padding: '18px', marginBottom: '18px', textAlign: 'center' }}>
@@ -337,9 +368,25 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '12px', padding: '18px', marginBottom: '18px', textAlign: 'center' }}>
                 <div style={{ fontSize: '36px', marginBottom: '6px' }}>❌</div>
                 <div style={{ fontWeight: 800, color: 'var(--crimson-fault)', fontSize: '16px' }}>Calibration Interrupted or Inconsistent</div>
+                {calibration.failure_reason && (
+                  <div style={{
+                    margin: '10px 0',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    color: '#fca5a5',
+                    fontWeight: 600,
+                    textAlign: 'center',
+                    fontFamily: 'monospace'
+                  }}>
+                    ⚠️ {calibration.failure_reason}
+                  </div>
+                )}
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.6 }}>
                   {calibration.step === 'FAILED' ? 'The sensor detected movement or insufficient grip dynamic range.' : 'Sensor reading timed out.'}<br />
-                  <strong style={{ color: '#fff' }}>Tip:</strong> Use the 3-second gap to steady your hand before each measurement starts!
+                  <strong style={{ color: '#fff' }}>Tip:</strong> Use the transition countdown to steady your hand before each measurement starts!
                 </div>
               </div>
             )}
@@ -365,6 +412,10 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
                   <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px' }}>
                     <div style={{ fontWeight: 700, color: '#00e5ff', marginBottom: '3px' }}>4. 💪 Squeeze Firmly</div>
                     Squeeze as hard as during an actual rep.
+                  </div>
+                  <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', gridColumn: '1 / -1' }}>
+                    <div style={{ fontWeight: 700, color: '#10b981', marginBottom: '3px' }}>5. 💾 Validate & Commit</div>
+                    Calculates statistical separation ratio (Sr &ge; 3.0) and commits profile with CRC32 to NVS memory.
                   </div>
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--cyan-primary)', marginTop: '12px', background: 'rgba(0,229,255,0.06)', padding: '8px 12px', borderRadius: '6px' }}>
@@ -394,38 +445,6 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
           </div>
         )}
 
-        {/* ── READINESS CONFIRMATION MODAL STATE ── */}
-        {isReadyPrompt && (
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--cyan-primary)', borderRadius: '14px', padding: '24px', textAlign: 'center', marginBottom: '20px' }}>
-            <div style={{ fontSize: '42px', marginBottom: '12px' }}>🎯</div>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>
-              Are you ready?
-            </h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: '420px', margin: '0 auto 18px' }}>
-              Make sure your glove is securely strapped on your hand and your dumbbell is within reach. You will get a <strong>5-second countdown</strong> to get into your first position.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '320px', margin: '0 auto 20px', textAlign: 'left', fontSize: '12px', color: 'var(--text-muted)' }}>
-              <div>✓ Glove powered on & WiFi connected</div>
-              <div>✓ Lifting dumbbell nearby</div>
-              <div>✓ Stand or sit in lifting posture</div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
-              <button onClick={() => setIsReadyPrompt(false)} className="btn-secondary" style={{ padding: '10px 18px' }}>
-                Not Yet
-              </button>
-              <button
-                onClick={handleStartClick}
-                className="btn-primary"
-                style={{ padding: '10px 24px', fontSize: '14px', fontWeight: 700, boxShadow: '0 0 16px rgba(0,229,255,0.4)' }}
-              >
-                ▶ I'm Ready — Start (5s Prep)
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* ── RUNNING STATE (ACTIVE STEP OR PREPARATION COUNTDOWN) ── */}
         {isRunning && (
           <div>
@@ -447,7 +466,24 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
                   gap: '6px',
                   animation: 'pulse 1.5s infinite',
                 }}>
-                  <span>⏳ GET READY — CHANGE POSITION</span>
+                  <span>⏳ COUNTDOWN — GET READY TO HOLD STILL</span>
+                </div>
+              ) : isAwaitingUser ? (
+                <div style={{
+                  background: 'rgba(0,229,255,0.12)',
+                  border: '1px solid rgba(0,229,255,0.4)',
+                  color: 'var(--cyan-primary)',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}>
+                  <span>📍 STEP {currentStep.number} PREPARATION — TAKE YOUR TIME</span>
                 </div>
               ) : (
                 <div style={{
@@ -470,6 +506,27 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
               )}
             </div>
 
+            {/* Celebratory Banner for Completed Step */}
+            {justCompletedStep !== null && isAwaitingUser && (
+              <div style={{
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                borderRadius: '10px',
+                padding: '10px 16px',
+                marginBottom: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                color: '#34d399',
+                fontWeight: 800,
+                fontSize: '13px',
+              }}>
+                <span>🎉</span>
+                <span>Good Job! Step {justCompletedStep} Completed Successfully!</span>
+              </div>
+            )}
+
             {/* Main Interactive Card */}
             <div style={{
               background: 'var(--bg-surface)',
@@ -484,7 +541,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
             }}>
               
               {/* Illustration with Countdown Overlay if in Prep */}
-              <div style={{ position: 'relative', width: '160px', height: '160px', margin: '0 auto 16px' }}>
+              <div style={{ position: 'relative', width: '180px', height: '180px', margin: '0 auto 16px' }}>
                 {currentStep.illustration}
 
                 {/* Animated Circular Countdown Overlay */}
@@ -506,7 +563,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
                     boxShadow: '0 0 20px rgba(251,191,36,0.4)',
                   }}>
                     <div style={{
-                      fontSize: '44px',
+                      fontSize: '48px',
                       fontWeight: 900,
                       color: '#fbbf24',
                       lineHeight: 1,
@@ -514,7 +571,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
                     }}>
                       {prepCountdown}
                     </div>
-                    <div style={{ fontSize: '10px', color: '#fff', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px', fontWeight: 700 }}>
+                    <div style={{ fontSize: '11px', color: '#fff', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '6px', fontWeight: 700 }}>
                       Starting in...
                     </div>
                   </div>
@@ -523,33 +580,70 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
 
               {/* Step Title & Instruction */}
               <div style={{ fontSize: '11px', color: isPrepState ? '#fbbf24' : currentStep.color, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>
-                Step {currentStep.number} of 4 — {currentStep.title}
+                Step {currentStep.number} of 5 — {currentStep.title}
               </div>
 
               <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff', lineHeight: 1.45, marginBottom: '10px' }}>
-                {isPrepState ? currentStep.prepTip : currentStep.instruction}
+                {currentStep.instruction}
               </div>
 
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.6, background: 'rgba(0,0,0,0.25)', borderRadius: '8px', padding: '10px', textAlign: 'left' }}>
-                💡 <strong>{isPrepState ? 'Transition Prep:' : 'Measurement Goal:'}</strong>{' '}
-                {isPrepState ? 'Take your time to position your hand and arm. Data recording will not begin until the countdown hits zero.' : currentStep.detail}
+                💡 <strong>Positioning Guide:</strong> {currentStep.prepTip}
               </div>
 
+              {/* User Confirmation Ready Button */}
+              {isAwaitingUser && !isPrepState && (
+                <div style={{
+                  marginTop: '16px',
+                  background: 'rgba(0, 229, 255, 0.08)',
+                  border: '1px solid rgba(0, 229, 255, 0.3)',
+                  borderRadius: '12px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#fff' }}>
+                    Position your hand as shown. Are you ready?
+                  </div>
+                  <button
+                    onClick={handleReadyClick}
+                    className="btn-primary"
+                    style={{
+                      padding: '12px 28px',
+                      fontSize: '14px',
+                      fontWeight: 800,
+                      borderRadius: '10px',
+                      boxShadow: '0 0 20px rgba(0, 229, 255, 0.4)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <span>👉</span> Yes, I'm Ready (3s Countdown)
+                  </button>
+                </div>
+              )}
+
               {/* Step Progress Bar during sampling */}
-              <div style={{ marginTop: '16px' }}>
-                <div style={{ height: '6px', background: 'rgba(0,0,0,0.4)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%',
-                    width: isPrepState ? '100%' : `${calibration.progress_pct}%`,
-                    background: isPrepState ? '#fbbf24' : 'linear-gradient(90deg, var(--cyan-primary), var(--emerald-valid))',
-                    transition: 'width 0.25s linear',
-                  }} />
+              {isSampling && (
+                <div style={{ marginTop: '16px' }}>
+                  <div style={{ height: '8px', background: 'rgba(0,0,0,0.4)', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${calibration.progress_pct}%`,
+                      background: 'linear-gradient(90deg, var(--cyan-primary), var(--emerald-valid))',
+                      transition: 'width 0.25s linear',
+                    }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    <span style={{ color: 'var(--emerald-valid)', fontWeight: 700 }}>● Active measurement — hold steady</span>
+                    <span>{calibration.progress_pct}%</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  <span>{isPrepState ? 'Preparation window' : 'Sampling sensor baseline'}</span>
-                  <span>{isPrepState ? `${prepCountdown}s remaining` : `${calibration.progress_pct}%`}</span>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -573,13 +667,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
             
             {!isRunning && (
               <button
-                onClick={() => {
-                  if (isIdle) {
-                    setIsReadyPrompt(true);
-                  } else {
-                    handleStartClick();
-                  }
-                }}
+                onClick={onStartCalibration}
                 className="btn-primary"
                 style={{ padding: '8px 20px', fontWeight: 700 }}
               >

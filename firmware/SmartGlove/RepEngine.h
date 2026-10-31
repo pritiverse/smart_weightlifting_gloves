@@ -1,6 +1,8 @@
 #ifndef REP_ENGINE_H
 #define REP_ENGINE_H
 
+#include <cstring>
+#include <math.h>
 #include "Config.h"
 #include "SensorAcquisition.h"
 #include "SignalProcessing.h"
@@ -11,17 +13,17 @@
  */
 enum RepState {
     REP_STATE_IDLE = 0,
-    REP_STATE_READY,
-    REP_STATE_CONCENTRIC_OR_OUTBOUND,
-    REP_STATE_TRANSITION,
-    REP_STATE_ECCENTRIC_OR_RETURN,
-    REP_STATE_REP_CANDIDATE,
+    REP_STATE_READY,                  // Valley tracking & stationary re-baselining
+    REP_STATE_CONCENTRIC_OR_OUTBOUND, // Ascent leg (prominence tracking)
+    REP_STATE_TRANSITION,             // Peak inflection
+    REP_STATE_ECCENTRIC_OR_RETURN,    // Descent leg (prominence tracking)
+    REP_STATE_REP_CANDIDATE,          // Candidate evaluation
     REP_STATE_VALID_REP,
     REP_STATE_REJECTED_REP
 };
 
 /**
- * Structured, explainable rejection reasons
+ * Structured, explainable rejection reasons (Phase 4 novel rejections included)
  */
 enum RejectionReason {
     REJECT_NONE = 0,
@@ -30,11 +32,15 @@ enum RejectionReason {
     REJECT_DURATION_TOO_LONG,
     REJECT_INSUFFICIENT_GRIP,
     REJECT_INCOMPLETE_RETURN,
-    REJECT_SENSOR_UNRELIABLE
+    REJECT_SENSOR_UNRELIABLE,
+    REJECT_UNLOADED,         // Phase 4: Mimed or dropped weight (insufficient grip-load coupling)
+    REJECT_MOMENTUM_SWING    // Phase 4: Body swing cheat (early gyro spike, short concentric, low coupling)
 };
 
 /**
  * Supported Exercise Types
+ * Note: EXERCISE_DUMBBELL_PRESS operates via a stationary-bounded lockout/rack window
+ * and has documented lower angular accuracy compared to rotational curl/extension.
  */
 enum ExerciseType {
     EXERCISE_BICEP_CURL = 0,
@@ -43,20 +49,33 @@ enum ExerciseType {
 };
 
 /**
- * Exercise Profile Configuration
+ * Exercise Profile Configuration with per-exercise thresholds
  */
 struct ExerciseProfile {
     ExerciseType type;
     char name[24];
-    float minRomDeg;           // Minimum required angular excursion (deg)
-    uint32_t minDurationMs;    // Ballistic filter threshold (ms)
-    uint32_t maxDurationMs;    // Stalled movement threshold (ms)
-    float minGripRatio;        // Minimum normalized grip during concentric phase [0.0 - 1.0]
-    float returnToleranceDeg;  // Return-to-start posture tolerance window (deg)
+    float minRomDeg;                   // Minimum required angular excursion (deg)
+    uint32_t minDurationMs;            // Ballistic filter threshold (ms)
+    uint32_t maxDurationMs;            // Stalled movement threshold (ms)
+    float minGripRatio;                // Fallback minimum normalized grip during rep [0.0 - 1.0]
+    float returnToleranceDeg;          // Return-to-start posture tolerance window (deg)
+
+    // Dynamic movement thresholds
+    float onsetExcursionDeg;           // Excursion threshold above valley for movement onset (deg)
+    float onsetGyroDps;                // Gyro angular velocity for movement onset (deg/s)
+    float peakTransExcursionDeg;       // Excursion threshold to qualify for peak transition (deg)
+    float peakTransGyroDps;            // Gyro velocity drop threshold at peak (deg/s)
+    float returnOnsetDeltaDeg;         // Descent from peak to enter eccentric (deg)
+    float concentricAbortExcursionDeg; // Excursion threshold for concentric abort (deg)
+    float concentricAbortPeakDeg;      // Peak excursion threshold for concentric abort (deg)
+    float transitionStallGyroDps;      // Gyro velocity threshold resetting transition stall timer (deg/s)
+    float sustainedGripMinExcursionDeg;// Excursion threshold where sustained low grip is evaluated (deg)
+    float returnSettledExcursionDeg;   // Stationary return completion excursion threshold (deg)
+    float returnSettledGyroDps;        // Stationary return completion gyro threshold (deg/s)
 };
 
 /**
- * Real-time repetition tracking telemetry
+ * Real-time repetition tracking telemetry (Phase 4 Coupling & Confidence Metrics)
  */
 struct RepetitionStats {
     uint32_t totalValidReps;
@@ -74,6 +93,33 @@ struct RepetitionStats {
     float currentExcursionDeg;
     uint32_t currentRepElapsedMs;
     float currentRepMeanGrip;
+
+    // Phase 3 Adaptive Threshold Telemetry
+    float adaptiveMinRomDeg;
+    uint32_t adaptiveMinDurationMs;
+    uint32_t adaptiveMaxDurationMs;
+    uint8_t pendingCandidateCount;
+    bool isSetArmed;
+
+    // Phase 4 Novel Feature Telemetry: Grip-Load Coupling, Confidence & Fatigue
+    float lastRepCouplingRho;     // Grip-load cross-correlation score [-1.0, 1.0]
+    float lastRepConfidencePct;   // Multi-factor confidence score [0 - 100%]
+    bool lastRepWasUncertain;     // True if held in uncertain pool and reconciled at set end
+    bool isFatigued;              // True if fatigue criteria (velocity loss, tempo drift, grip decay) active
+    float fatigueIndexPct;        // Composite fatigue index [0 - 100%]
+};
+
+/**
+ * Fixed-size candidate record for back-crediting and set-end reconciliation
+ */
+struct CandidateRepRecord {
+    uint32_t durationMs;
+    float peakRomDeg;
+    float avgGrip;
+    float couplingRho;
+    float confidencePct;
+    uint32_t timestampMs;
+    bool populated;
 };
 
 class RepetitionEngine {
@@ -81,7 +127,7 @@ public:
     RepetitionEngine();
 
     /**
-     * Initialize repetition state machine and load default exercise profile
+     * Initialize repetition state machine; retains current profile type without forcing bicep curl
      */
     void init();
 
@@ -91,12 +137,12 @@ public:
     void update(const ProcessedSensorData& proc, const CalibrationProfile& calib, bool sensorHealthOk = true);
 
     /**
-     * Configure active exercise profile
+     * Configure active exercise profile and reset in-flight state
      */
     void setExerciseProfile(ExerciseType type);
 
     /**
-     * Reset repetition session counters
+     * Reset repetition session counters, fatigue metrics, and adaptive baselines
      */
     void resetCounters();
 
@@ -110,30 +156,88 @@ public:
     const char* getRejectionReasonName(RejectionReason reason) const;
 
 private:
+    static constexpr uint16_t MAX_REP_SAMPLES = 256;
+
     RepState _currentState;
     ExerciseProfile _activeProfile;
     RepetitionStats _stats;
 
-    // In-flight rep tracking variables
+    // Valley -> Peak -> Valley Prominence Tracking
+    float _bottomValleyDeg;
+    float _returnValleyDeg;
+    float _peakExcursionDeg;
+    float _ascentProminence;
+    float _descentProminence;
+
+    // Dominant Motion Axis Estimation
+    float _gyroEnergy[3];
+    uint8_t _dominantAxisIndex;
+    int8_t _dominantSign;
+    bool _dominantAxisLocked;
+
+    // Grip Gate & Latch
+    float _minGrip;
+    float _gripAccumulator;
+    uint32_t _gripSampleCount;
+    uint16_t _sustainedLowGripSamples;
+    bool _gripFailedDuringRep;
+    bool _sensorFaultDuringRep;
+
+    // Timers
     uint32_t _repStartTimeMs;
     uint32_t _concentricStartTimeMs;
     uint32_t _transitionStartTimeMs;
     uint32_t _lastRepEndTimeMs;
+    uint16_t _disarmedSamplesCount; // Tracks grip release duration for set-end reconciliation
 
-    float _startPitchDeg;
-    float _startRollDeg;
-    float _peakExcursionDeg;
+    // 2-Candidate Rep Confirmation & Back-Crediting Buffer
+    CandidateRepRecord _pendingRep1;
+    bool _confirmedSetStarted;
 
-    // Grip integration accumulators
-    float _gripAccumulator;
-    uint32_t _gripSampleCount;
-    uint16_t _sustainedLowGripSamples;
-    bool _gripFailedDuringConcentric;
-    bool _sensorFaultDuringRep;
+    // Phase 4: Uncertain Rep Pool for Set-End Cadence Reconciliation
+    CandidateRepRecord _uncertainReps[2];
+    uint8_t _uncertainCount;
 
-    float calculateExcursion(const ProcessedSensorData& proc, const CalibrationProfile& calib) const;
-    void finalizeRep(bool isValid, RejectionReason reason, uint32_t durationMs, float peakRom, float avgGrip);
+    // Adaptive Thresholds Memory (Ring buffer of last 5 valid reps)
+    float _recentPeakRom[5];
+    uint32_t _recentDuration[5];
+    uint8_t _recentCount;
+    uint8_t _recentHead;
+
+    // Phase 4 Novel Feature Ring Buffers (Grip-Load Coupling)
+    float _fsrHighPassHistory[MAX_REP_SAMPLES];
+    float _gyroAccelHistory[MAX_REP_SAMPLES];
+    uint16_t _repHistorySampleCount;
+    float _fsrSlowEMA;
+    float _prevFilteredGyroMag;
+
+    // Momentum Swing & Velocity Tracking
+    float _concentricPeakGyro;
+    uint32_t _concentricPeakGyroTimeMs;
+
+    // Fatigue Baseline Tracking (from Rep 1)
+    float _initialPeakGyro;
+    uint32_t _initialRepDuration;
+    float _initialMeanGrip;
+    bool _fatigueBaselineSet;
+
+    // 3-consecutive-sample debouncing counters
+    uint8_t _onsetDebounceCount;
+    uint8_t _peakDebounceCount;
+    uint8_t _returnOnsetDebounceCount;
+    uint8_t _returnDebounceCount;
+
+    float calculateExcursion(const ProcessedSensorData& proc, const CalibrationProfile& calib);
+    void finalizeRep(bool isValid, RejectionReason reason, uint32_t durationMs, float peakRom, float avgGrip, float rho = 0.0f, float confidence = 100.0f);
     void transitionTo(RepState nextState);
+    void resetInFlightState();
+    void updateAdaptiveThresholds(float peakRom, uint32_t durationMs);
+
+    // Phase 4 Helpers
+    float calculateGripLoadCoupling(uint16_t sampleCount, uint8_t& outBestLag);
+    float evaluateRepConfidence(float ascentRom, uint32_t durationMs, float rho, float signalNoise, uint8_t bestLag);
+    void reconcileUncertainReps();
+    void updateFatigueMetrics(float peakGyro, uint32_t durationMs, float avgGrip);
 };
 
 #endif // REP_ENGINE_H

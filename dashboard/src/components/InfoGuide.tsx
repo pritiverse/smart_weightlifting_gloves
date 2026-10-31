@@ -107,34 +107,40 @@ export const InfoGuide: React.FC = () => {
             color="var(--cyan-primary)"
           >
             <p style={{ fontSize: '12px', color: '#a0aec0', lineHeight: 1.7, margin: '0 0 10px' }}>
-              The glove watches your wrist angle 50 times per second and counts a rep only when <strong style={{ color: '#fff' }}>ALL four rules pass at once:</strong>
+              The glove watches 3D gravity tilt and palm pressure 50 times per second and counts a rep only when <strong style={{ color: '#fff' }}>biometric rules pass:</strong>
             </p>
             <Row
-              label="① Range of Motion ≥ 35°"
-              tip="Your wrist must travel at least 35 degrees from start to peak. For a bicep curl that means fully extending at the bottom and fully curling at the top."
+              label="① Adaptive Excursion"
+              tip="Wrist must travel past the adaptive threshold (nominal 40°, auto-adapting to 0.65× median for fatigued sets)."
               accent="var(--emerald-valid)"
-              value="≥ 35°"
+              value="≥ Adaptive Min"
             />
             <Row
-              label="② Grip pressure ≥ 40%"
-              tip="You must be squeezing the dumbbell with at least 40% of your firm-grip force (set during calibration). Loose fingers = rejected rep."
+              label="② Palm Grip Pressure ≥ 35%"
+              tip="Palm pressure must exceed 35% of calibrated firm grip force throughout the concentric ascent. Armed via Schmitt trigger."
               accent="var(--cyan-primary)"
-              value="≥ 40%"
+              value="≥ 35% (Armed)"
             />
             <Row
-              label="③ Duration 0.6s – 5.0s"
-              tip="The rep must take between 0.6 and 5 seconds. Faster than 0.6s = a jolt/cheat. Slower than 5s = paused/stalled."
+              label="③ Grip-Load Coupling (ρ ≥ 0.12)"
+              tip="Cross-correlation between high-pass FSR and angular acceleration over [0, 140ms] confirms dumbbell load. Mimed arm movements are rejected."
+              accent="#a78bfa"
+              value="ρ ≥ 0.12"
+            />
+            <Row
+              label="④ Tempo & Controlled Duration"
+              tip="The repetition must take between 700ms and 5000ms. Cheated ballistic jerks (<700ms) or resting mid-curl (>5000ms) are flagged."
               accent="var(--amber-warning)"
-              value="0.6 – 5 s"
+              value="0.7 – 5.0 s"
             />
             <Row
-              label="④ Sensors healthy"
-              tip="The glove's IMU and grip sensor must both be in HEALTHY state. If a sensor fault is detected, rep counting is automatically gated off."
+              label="⑤ 2-Candidate Confirmation"
+              tip="First repetition is held in pending status and verified when rep #2 proves consistent within 30° and 2.0s, back-crediting both."
               accent="var(--emerald-valid)"
-              value="No fault"
+              value="2-Candidate Gate"
             />
             <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(0,229,255,0.06)', borderRadius: '8px', fontSize: '11px', color: '#94a3b8', lineHeight: 1.6 }}>
-              💡 <strong style={{ color: 'var(--cyan-primary)' }}>Bicep Curl example:</strong> Arm down (0°) → curl up to ~80° → arm back down. The glove detects the peak angle, checks your grip, checks the time, and if all pass → <Badge label="VALID ✓" color="var(--emerald-valid)" bg="rgba(0,230,118,0.1)" />
+              💡 <strong style={{ color: 'var(--cyan-primary)' }}>Novel Anti-Cheat Feature:</strong> Grip-load coupling prevents users from cheating with empty hand swings, while adaptive ROM maintains accuracy as muscles fatigue near failure.
             </div>
           </Section>
 

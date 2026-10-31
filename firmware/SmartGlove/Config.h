@@ -186,7 +186,7 @@ namespace Config {
         
         // Minimum statistical separation ratio between relaxed and firm grip
         // Separation Ratio = (Mean_Firm - Mean_Relaxed) / (Std_Firm + Std_Relaxed)
-        constexpr float MIN_ACCEPTABLE_SEPARATION_RATIO = 3.0f;
+        constexpr float MIN_ACCEPTABLE_SEPARATION_RATIO = 1.2f;
 
         // Default fallback thresholds if no calibration is stored
         constexpr uint16_t FALLBACK_FSR_RELAXED_ADC = 350;
@@ -240,6 +240,20 @@ namespace Config {
          * falsely rejecting an otherwise valid repetition. Low grip must persist for >= 300 ms.
          */
         constexpr uint16_t SUSTAINED_LOW_GRIP_SAMPLES = 15;
+    }
+
+    // ========================================================================
+    // 6. COMPILE-TIME EVALUATION & RAW CSV STREAMING (PHASE 5)
+    // ========================================================================
+    namespace Evaluation {
+        /**
+         * Purpose: Enable raw 50 Hz CSV telemetry streaming over Serial.
+         * Format: timestamp_ms,ax,ay,az,gx,gy,gz,fsr_adc,fsr_norm,tilt_deg,state,valid_reps,rejected_reps,reason
+         * Set to 1 to compile firmware with full raw 50 Hz streaming enabled by default.
+         */
+        #ifndef STREAM_RAW_TELEMETRY_CSV
+        #define STREAM_RAW_TELEMETRY_CSV 0
+        #endif
     }
 
 } // namespace Config

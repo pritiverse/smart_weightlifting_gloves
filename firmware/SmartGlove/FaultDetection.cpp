@@ -134,8 +134,8 @@ void FaultDetectionEngine::evaluateDrift(const ProcessedSensorData& proc, const 
 }
 
 void FaultDetectionEngine::evaluateStuckAt(const RawSensorData& raw, const ProcessedSensorData& proc, uint32_t nowMs) {
-    // Insert into rolling 1-second buffers
-    _lastPitchSamples[_stuckBufferIndex] = proc.pitchDeg;
+    // Insert into rolling 1-second buffers (using 3D invariant tiltDeg for robust multi-planar fault detection)
+    _lastPitchSamples[_stuckBufferIndex] = proc.tiltDeg;
     _lastFsrSamples[_stuckBufferIndex] = raw.fsrRawADC;
     _stuckBufferIndex = (_stuckBufferIndex + 1) % STUCK_BUFFER_SIZE;
     if (_stuckBufferCount < STUCK_BUFFER_SIZE) {
@@ -143,7 +143,7 @@ void FaultDetectionEngine::evaluateStuckAt(const RawSensorData& raw, const Proce
         return; // Need full buffer before variance calculation
     }
 
-    // Compute pitch variance and FSR variance over the 1.0 s window
+    // Compute tilt variance and FSR variance over the 1.0 s window
     float sumPitch = 0.0f, sumPitchSq = 0.0f;
     float sumFsr = 0.0f, sumFsrSq = 0.0f;
     for (uint8_t i = 0; i < STUCK_BUFFER_SIZE; i++) {
@@ -155,15 +155,17 @@ void FaultDetectionEngine::evaluateStuckAt(const RawSensorData& raw, const Proce
 
     float meanPitch = sumPitch / STUCK_BUFFER_SIZE;
     float varPitch = (sumPitchSq / STUCK_BUFFER_SIZE) - (meanPitch * meanPitch);
+    if (varPitch < 0.0f) varPitch = 0.0f;
 
     float meanFsr = sumFsr / STUCK_BUFFER_SIZE;
     float varFsr = (sumFsrSq / STUCK_BUFFER_SIZE) - (meanFsr * meanFsr);
+    if (varFsr < 0.0f) varFsr = 0.0f;
 
-    // Contextual Rule A: FSR is actively oscillating (varFsr > 400), but IMU pitch variance is frozen (< 0.0001)
+    // Contextual Rule A: FSR is actively oscillating (varFsr > 400), but IMU tilt variance is frozen (< 0.0001)
     if ((varPitch < 0.0001f && varFsr > 400.0f) || _injectedFault == FAULT_STUCK_AT_IMU) {
         _report.mpuHealth = HEALTH_STATE_SUSPECTED_FAULT;
         _report.primaryFault = FAULT_STUCK_AT_IMU;
-        strncpy(_report.faultMessage, "IMU pitch output is frozen during grip activity", sizeof(_report.faultMessage));
+        strncpy(_report.faultMessage, "IMU attitude output is frozen during grip activity", sizeof(_report.faultMessage));
     }
 
     // Contextual Rule B: Wrist is executing dynamic repetitions (varPitch > 35 deg^2), but FSR variance is frozen (< 0.05)

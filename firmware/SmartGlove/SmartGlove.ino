@@ -97,6 +97,7 @@ void handleSerialCommands() {
                 Serial.println(F("  2     : Select Wrist Extension exercise profile"));
                 Serial.println(F("  3     : Select Dumbbell Press exercise profile"));
                 Serial.println(F("  c     : Start 5-step guided calibration wizard"));
+                Serial.println(F("  n / y : Confirm ready for current calibration step"));
                 Serial.println(F("  p     : Display current calibration profile"));
                 Serial.println(F("  i     : Inject simulated I2C Dropout fault (Test)"));
                 Serial.println(F("  k     : Clear injected simulated faults"));
@@ -151,6 +152,13 @@ void handleSerialCommands() {
                 Serial.println(F("\n[CALIB] Starting 5-Step Guided Calibration Wizard..."));
                 personalCal.startWizard();
                 break;
+            case 'n':
+            case 'N':
+            case 'y':
+            case 'Y':
+                Serial.println(F("[CALIB] Ready confirmed. Beginning step recording..."));
+                personalCal.confirmReady();
+                break;
             case 'p': {
                 const CalibrationProfile& prof = personalCal.getProfile();
                 Serial.println(F("\n--- Active Calibration Profile ---"));
@@ -172,10 +180,10 @@ void handleSerialCommands() {
             case 'L':
                 csvLoggingActive = !csvLoggingActive;
                 if (csvLoggingActive) {
-                    Serial.println(F("\n--- CSV STREAMING ACTIVE (10 Hz) ---"));
-                    Serial.println(F("timestamp_ms,pitch_deg,roll_deg,fsr_adc,norm_grip_pct,health_state,rep_state,reject_reason"));
+                    Serial.println(F("\n--- RAW 50 Hz CSV TELEMETRY ACTIVE ---"));
+                    Serial.println(F("timestamp_ms,ax,ay,az,gx,gy,gz,fsr_adc,fsr_norm,tilt_deg,state,valid_reps,rejected_reps,reason"));
                 } else {
-                    Serial.println(F("[LOG] CSV streaming disabled. Restored JSON streaming."));
+                    Serial.println(F("[LOG] 50 Hz CSV streaming disabled. Restored JSON streaming."));
                 }
                 break;
             default:
@@ -208,6 +216,7 @@ void setup() {
         Serial.println(F("LOADED VALID PROFILE."));
         const CalibrationProfile& prof = personalCal.getProfile();
         signalProc.setGripCalibration(prof.fsrRelaxedMeanADC, prof.fsrFirmMeanADC);
+        signalProc.setReferenceGravity(prof.neutralG);
     } else {
         Serial.println(F("NO STORED PROFILE (Using Safe Defaults)."));
     }
@@ -225,6 +234,12 @@ void setup() {
     Serial.println(F("ONLINE."));
 
     printNetworkStatus();
+
+#if STREAM_RAW_TELEMETRY_CSV
+    csvLoggingActive = true;
+    Serial.println(F("\n--- RAW 50 Hz CSV TELEMETRY ACTIVE (COMPILE-TIME) ---"));
+    Serial.println(F("timestamp_ms,ax,ay,az,gx,gy,gz,fsr_adc,fsr_norm,tilt_deg,state,valid_reps,rejected_reps,reason"));
+#endif
 
     lastAcquisitionTimeUs = micros();
     lastSerialReportTimeMs = millis();
@@ -263,11 +278,23 @@ void loop() {
         // Step D: Feed into Personal Calibration Wizard
         personalCal.processSample(currentSample, processedSample);
 
-        if (personalCal.getActiveStep() == CALIB_COMPLETED && lastObservedCalStep != CALIB_COMPLETED) {
-            const CalibrationProfile& prof = personalCal.getProfile();
-            signalProc.setGripCalibration(prof.fsrRelaxedMeanADC, prof.fsrFirmMeanADC);
+        CalibrationStep currentCalStep = personalCal.getActiveStep();
+        if (currentCalStep != lastObservedCalStep) {
+            if (currentCalStep == CALIB_COMPLETED) {
+                const CalibrationProfile& prof = personalCal.getProfile();
+                signalProc.setGripCalibration(prof.fsrRelaxedMeanADC, prof.fsrFirmMeanADC);
+                signalProc.setReferenceGravity(prof.neutralG);
+                Serial.println(F("\n>>> [CALIB SUCCESS] Valid personal profile validated and committed to NVS! <<<"));
+            } else if (currentCalStep == CALIB_FAILED) {
+                Serial.print(F("\n>>> [CALIB FAILED] Reason: "));
+                Serial.print(personalCal.getFailureReason());
+                Serial.println(F(" <<<"));
+            } else if (currentCalStep != CALIB_IDLE) {
+                Serial.print(F("[CALIB STEP] "));
+                Serial.println(personalCal.getStepName());
+            }
+            lastObservedCalStep = currentCalStep;
         }
-        lastObservedCalStep = personalCal.getActiveStep();
 
         // Step E: Feed into Repetition Engine (gated by sensor reliability)
         if (personalCal.getActiveStep() == CALIB_IDLE || personalCal.getActiveStep() == CALIB_COMPLETED) {
@@ -278,17 +305,38 @@ void loop() {
         RepState currentRepState = repEngine.getState();
         if (currentRepState != lastObservedRepState) {
             lastObservedRepState = currentRepState;
-            if (currentRepState == REP_STATE_VALID_REP) {
-                const RepetitionStats& stats = repEngine.getStats();
-                Serial.print(F(">>> VALID REP COUNTED! Total: "));
-                Serial.print(stats.totalValidReps);
-                Serial.print(F(" (ROM: ")); Serial.print(stats.lastRepPeakRomDeg, 1);
-                Serial.println(F(" deg) <<<"));
-            } else if (currentRepState == REP_STATE_REJECTED_REP) {
-                const RepetitionStats& stats = repEngine.getStats();
-                Serial.print(F("[REJECT] Reason: "));
-                Serial.println(repEngine.getRejectionReasonName(stats.lastRejectionReason));
+            if (!csvLoggingActive && !STREAM_RAW_TELEMETRY_CSV) {
+                if (currentRepState == REP_STATE_VALID_REP) {
+                    const RepetitionStats& stats = repEngine.getStats();
+                    Serial.print(F(">>> VALID REP COUNTED! Total: "));
+                    Serial.print(stats.totalValidReps);
+                    Serial.print(F(" (ROM: ")); Serial.print(stats.lastRepPeakRomDeg, 1);
+                    Serial.println(F(" deg) <<<"));
+                } else if (currentRepState == REP_STATE_REJECTED_REP) {
+                    const RepetitionStats& stats = repEngine.getStats();
+                    Serial.print(F("[REJECT] Reason: "));
+                    Serial.println(repEngine.getRejectionReasonName(stats.lastRejectionReason));
+                }
             }
+        }
+
+        // Phase 5: Raw 50 Hz CSV Telemetry Streaming
+        if (csvLoggingActive || STREAM_RAW_TELEMETRY_CSV) {
+            const RepetitionStats& repStats = repEngine.getStats();
+            Serial.print(currentSample.timestampMs); Serial.print(',');
+            Serial.print(currentSample.accelX_mps2, 3); Serial.print(',');
+            Serial.print(currentSample.accelY_mps2, 3); Serial.print(',');
+            Serial.print(currentSample.accelZ_mps2, 3); Serial.print(',');
+            Serial.print(currentSample.gyroX_dps, 2); Serial.print(',');
+            Serial.print(currentSample.gyroY_dps, 2); Serial.print(',');
+            Serial.print(currentSample.gyroZ_dps, 2); Serial.print(',');
+            Serial.print(currentSample.fsrRawADC); Serial.print(',');
+            Serial.print(processedSample.normalizedGrip, 3); Serial.print(',');
+            Serial.print(repStats.currentExcursionDeg, 2); Serial.print(',');
+            Serial.print(repEngine.getStateName()); Serial.print(',');
+            Serial.print(repStats.totalValidReps); Serial.print(',');
+            Serial.print(repStats.totalRejectedReps); Serial.print(',');
+            Serial.println(repEngine.getRejectionReasonName(repStats.lastRejectionReason));
         }
     }
 
@@ -298,46 +346,34 @@ void loop() {
 
     // 3. Periodic Serial Telemetry Streaming (10 Hz = every 100 ms)
     uint32_t currentMillis = millis();
-    if (currentMillis - lastSerialReportTimeMs >= Config::Timing::SERIAL_DEBUG_INTERVAL_MS) {
+    if (!csvLoggingActive && !STREAM_RAW_TELEMETRY_CSV && (currentMillis - lastSerialReportTimeMs >= Config::Timing::SERIAL_DEBUG_INTERVAL_MS)) {
         lastSerialReportTimeMs = currentMillis;
 
         const DiagnosticReport& diag = faultEngine.getReport();
         const RepetitionStats& repStats = repEngine.getStats();
 
-        if (csvLoggingActive) {
-            // Lightweight Comma-Separated Values stream for simple debugging and analysis
-            Serial.print(currentSample.timestampMs); Serial.print(',');
-            Serial.print(processedSample.pitchDeg, 1); Serial.print(',');
-            Serial.print(processedSample.rollDeg, 1); Serial.print(',');
-            Serial.print(currentSample.fsrRawADC); Serial.print(',');
-            Serial.print((int)(processedSample.normalizedGrip * 100.0f)); Serial.print(',');
-            Serial.print(faultEngine.getHealthStateName(diag.overallHealth)); Serial.print(',');
-            Serial.print(repEngine.getStateName()); Serial.print(',');
-            Serial.println(repEngine.getRejectionReasonName(repStats.lastRejectionReason));
-        } else {
-            // Output structured, clean JSON line
-            Serial.print(F("{\"seq\":"));
-            Serial.print(currentSample.sequenceId);
-            Serial.print(F(",\"t_ms\":"));
-            Serial.print(currentSample.timestampMs);
-            Serial.print(F(",\"pitch\":"));
-            Serial.print(processedSample.pitchDeg, 1);
-            Serial.print(F(",\"roll\":"));
-            Serial.print(processedSample.rollDeg, 1);
-            Serial.print(F(",\"grip_pct\":"));
-            Serial.print((int)(processedSample.normalizedGrip * 100.0f));
-            Serial.print(F(",\"rep_state\":\""));
-            Serial.print(repEngine.getStateName());
-            Serial.print(F("\",\"reps_valid\":"));
-            Serial.print(repStats.totalValidReps);
-            Serial.print(F(",\"reps_rej\":"));
-            Serial.print(repStats.totalRejectedReps);
-            Serial.print(F(",\"health\":\""));
-            Serial.print(faultEngine.getHealthStateName(diag.overallHealth));
-            Serial.print(F("\",\"conf_pct\":"));
-            Serial.print((int)diag.assessmentConfidencePct);
-            Serial.println(F("}"));
-        }
+        // Output structured, clean JSON line
+        Serial.print(F("{\"seq\":"));
+        Serial.print(currentSample.sequenceId);
+        Serial.print(F(",\"t_ms\":"));
+        Serial.print(currentSample.timestampMs);
+        Serial.print(F(",\"pitch\":"));
+        Serial.print(processedSample.pitchDeg, 1);
+        Serial.print(F(",\"roll\":"));
+        Serial.print(processedSample.rollDeg, 1);
+        Serial.print(F(",\"grip_pct\":"));
+        Serial.print((int)(processedSample.normalizedGrip * 100.0f));
+        Serial.print(F(",\"rep_state\":\""));
+        Serial.print(repEngine.getStateName());
+        Serial.print(F("\",\"reps_valid\":"));
+        Serial.print(repStats.totalValidReps);
+        Serial.print(F(",\"reps_rej\":"));
+        Serial.print(repStats.totalRejectedReps);
+        Serial.print(F(",\"health\":\""));
+        Serial.print(faultEngine.getHealthStateName(diag.overallHealth));
+        Serial.print(F("\",\"conf_pct\":"));
+        Serial.print((int)diag.assessmentConfidencePct);
+        Serial.println(F("}"));
     }
 
     // 4. Process Serial Interactive Commands

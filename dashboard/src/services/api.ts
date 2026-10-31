@@ -1,9 +1,26 @@
 import { TelemetryPacket, CalibrationProfile, DiagnosticsReport } from '../types';
 
-let deviceBaseUrl = 'http://10.249.34.96';
+const getInitialHost = () => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sim') === '1' || params.get('simulator') === '1') {
+      return 'http://localhost:8000';
+    }
+    const customHost = params.get('host');
+    if (customHost) return customHost.startsWith('http') ? customHost : `http://${customHost}`;
+    const saved = localStorage.getItem('gripguard_api_host');
+    if (saved) return saved;
+  }
+  return 'http://10.249.34.96';
+};
+
+let deviceBaseUrl = getInitialHost();
 
 export const setApiHost = (host: string) => {
   deviceBaseUrl = host.startsWith('http') ? host : `http://${host}`;
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('gripguard_api_host', deviceBaseUrl);
+  }
 };
 
 export const getApiHost = () => deviceBaseUrl;
@@ -29,7 +46,7 @@ export const fetchCalibration = async (): Promise<CalibrationProfile> => {
   return await res.json();
 };
 
-export const postCalibrateAction = async (action: 'start' | 'cancel' | 'reset') => {
+export const postCalibrateAction = async (action: 'start' | 'ready' | 'next' | 'cancel' | 'reset') => {
   const res = await fetch(`${deviceBaseUrl}/api/calibrate?action=${action}`, { method: 'POST' });
   return await res.json();
 };

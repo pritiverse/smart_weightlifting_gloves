@@ -132,7 +132,8 @@ void GripNetworkManager::handleTelemetry() {
     json += "\"raw_adc\":" + String(_cachedRaw.fsrRawADC) + ",";
     json += "\"filtered_adc\":" + String((int)_cachedProc.filteredFsrADC) + ",";
     json += "\"voltage\":" + String(_cachedProc.filteredFsrVoltage, 2) + ",";
-    json += "\"normalized_pct\":" + String((int)(_cachedProc.normalizedGrip * 100.0f));
+    json += "\"normalized_pct\":" + String((int)(_cachedProc.normalizedGrip * 100.0f)) + ",";
+    json += "\"schmitt_armed\":" + String(_cachedProc.gripGate ? "true" : "false");
     json += "},";
 
     // Repetition Engine
@@ -146,7 +147,14 @@ void GripNetworkManager::handleTelemetry() {
     json += "\"last_rep_duration_ms\":" + String(repStats.lastRepDurationMs) + ",";
     json += "\"last_rep_rom_deg\":" + String(repStats.lastRepPeakRomDeg, 1) + ",";
     json += "\"last_rep_grip_pct\":" + String((int)(repStats.lastRepAvgGripRatio * 100.0f)) + ",";
-    json += "\"last_rejection_reason\":\"" + String(_repRef->getRejectionReasonName(repStats.lastRejectionReason)) + "\"";
+    json += "\"last_rejection_reason\":\"" + String(_repRef->getRejectionReasonName(repStats.lastRejectionReason)) + "\",";
+    json += "\"coupling_rho\":" + String(repStats.lastRepCouplingRho, 3) + ",";
+    json += "\"confidence_pct\":" + String((int)repStats.lastRepConfidencePct) + ",";
+    json += "\"is_fatigued\":" + String(repStats.isFatigued ? "true" : "false") + ",";
+    json += "\"fatigue_index_pct\":" + String((int)repStats.fatigueIndexPct) + ",";
+    json += "\"adaptive_min_rom_deg\":" + String(repStats.adaptiveMinRomDeg, 1) + ",";
+    json += "\"pending_candidates\":" + String(repStats.pendingCandidateCount) + ",";
+    json += "\"is_set_armed\":" + String(repStats.isSetArmed ? "true" : "false");
     json += "},";
 
     // Health Engine
@@ -164,7 +172,8 @@ void GripNetworkManager::handleTelemetry() {
     json += "\"calibration\":{";
     json += "\"is_calibrated\":" + String(_calibRef->isCalibrated() ? "true" : "false") + ",";
     json += "\"step\":\"" + String(_calibRef->getStepName()) + "\",";
-    json += "\"progress_pct\":" + String(_calibRef->getStepProgressPct());
+    json += "\"progress_pct\":" + String(_calibRef->getStepProgressPct()) + ",";
+    json += "\"failure_reason\":\"" + String(_calibRef->getFailureReason()) + "\"";
     json += "}";
 
     json += "}";
@@ -175,12 +184,18 @@ void GripNetworkManager::handleGetCalibration() {
     sendCORSHeaders();
     const CalibrationProfile& prof = _calibRef->getProfile();
 
+    float neutralPitch = atan2f(-prof.neutralG[0], sqrtf(prof.neutralG[1] * prof.neutralG[1] + prof.neutralG[2] * prof.neutralG[2])) * (180.0f / M_PI);
+    float neutralRoll  = atan2f(prof.neutralG[1], prof.neutralG[2]) * (180.0f / M_PI);
+
     String json = "{";
     json += "\"is_valid\":" + String(prof.isValid ? "true" : "false") + ",";
     json += "\"schema_version\":" + String(prof.schemaVersion) + ",";
-    json += "\"neutral_pitch_deg\":" + String(prof.neutralPitchDeg, 1) + ",";
-    json += "\"neutral_roll_deg\":" + String(prof.neutralRollDeg, 1) + ",";
-    json += "\"posture_stability_std\":" + String(prof.postureStabilityStd, 2) + ",";
+    json += "\"neutral_pitch_deg\":" + String(neutralPitch, 1) + ",";
+    json += "\"neutral_roll_deg\":" + String(neutralRoll, 1) + ",";
+    json += "\"posture_stability_std\":" + String(prof.angularSpreadDeg, 2) + ",";
+    json += "\"neutral_gx\":" + String(prof.neutralG[0], 3) + ",";
+    json += "\"neutral_gy\":" + String(prof.neutralG[1], 3) + ",";
+    json += "\"neutral_gz\":" + String(prof.neutralG[2], 3) + ",";
     json += "\"fsr_relaxed_mean_adc\":" + String(prof.fsrRelaxedMeanADC) + ",";
     json += "\"fsr_relaxed_std\":" + String(prof.fsrRelaxedStdDev, 1) + ",";
     json += "\"fsr_firm_mean_adc\":" + String(prof.fsrFirmMeanADC) + ",";
@@ -201,6 +216,9 @@ void GripNetworkManager::handlePostCalibrate() {
     if (action == "start") {
         _calibRef->startWizard();
         _server.send(200, "application/json", "{\"status\":\"started\",\"step\":\"PREP_REST_ARM\"}");
+    } else if (action == "ready" || action == "next") {
+        _calibRef->confirmReady();
+        _server.send(200, "application/json", "{\"status\":\"ready_confirmed\",\"step\":\"" + String(_calibRef->getStepName()) + "\"}");
     } else if (action == "cancel") {
         _calibRef->abortWizard("Canceled via API");
         _server.send(200, "application/json", "{\"status\":\"canceled\"}");
@@ -208,7 +226,7 @@ void GripNetworkManager::handlePostCalibrate() {
         _calibRef->resetToDefaults();
         _server.send(200, "application/json", "{\"status\":\"reset_to_defaults\"}");
     } else {
-        _server.send(400, "application/json", "{\"error\":\"Invalid action. Expected 'start', 'cancel', or 'reset'\"}");
+        _server.send(400, "application/json", "{\"error\":\"Invalid action. Expected 'start', 'ready', 'next', 'cancel', or 'reset'\"}");
     }
 }
 

@@ -188,6 +188,105 @@ export const OverviewCards: React.FC<OverviewCardsProps> = ({
         </div>
       </div>
 
+      {/* ── Phase 4/5 Biomechanical Intelligence Bar ── */}
+      <div style={{
+        background: 'linear-gradient(90deg, rgba(13, 21, 38, 0.9) 0%, rgba(20, 30, 55, 0.9) 100%)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '12px 20px',
+        marginBottom: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '12px',
+      }}>
+        {/* Grip-Load Coupling */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{
+            width: '8px', height: '8px', borderRadius: '50%',
+            background: (repetition.coupling_rho ?? 0) >= 0.12 ? 'var(--emerald-valid)' : 'var(--amber-warning)',
+            boxShadow: `0 0 8px ${(repetition.coupling_rho ?? 0) >= 0.12 ? 'var(--emerald-valid)' : 'var(--amber-warning)'}`,
+          }} />
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+              Grip-Load Coupling (ρ)
+            </div>
+            <div style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#fff' }}>
+              {(repetition.coupling_rho ?? 0.0).toFixed(3)}
+              <span style={{ fontSize: '10px', color: (repetition.coupling_rho ?? 0) >= 0.12 ? 'var(--emerald-valid)' : 'var(--amber-warning)', marginLeft: '6px', fontWeight: 600 }}>
+                {(repetition.coupling_rho ?? 0) >= 0.12 ? '✓ Real Load' : '⚠️ Low Coupling'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Rep Confidence */}
+        <div>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+            Biometric Confidence
+          </div>
+          <div style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan-primary)' }}>
+            {repetition.confidence_pct ?? 85}%
+          </div>
+        </div>
+
+        {/* Adaptive Min ROM */}
+        <div>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+            Adaptive Min ROM
+          </div>
+          <div style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#fff' }}>
+            {(repetition.adaptive_min_rom_deg ?? 40.0).toFixed(1)}°
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: '4px' }}>
+              (0.65× Median)
+            </span>
+          </div>
+        </div>
+
+        {/* 2-Candidate Confirmation Gate */}
+        <div>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+            Candidate Gate
+          </div>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: (repetition.pending_candidates ?? 0) > 0 ? 'var(--amber-warning)' : 'var(--emerald-valid)' }}>
+            {(repetition.pending_candidates ?? 0) > 0 ? '⏳ Candidate #1 Awaiting Rep #2' : '✓ Confirmed Active'}
+          </div>
+        </div>
+
+        {/* Fatigue & Velocity Loss Indicator */}
+        {(repetition.is_fatigued || (repetition.fatigue_index_pct ?? 0) >= 30) ? (
+          <div style={{
+            padding: '4px 10px',
+            borderRadius: '14px',
+            background: 'rgba(255, 171, 0, 0.15)',
+            border: '1px solid rgba(255, 171, 0, 0.4)',
+            color: 'var(--amber-warning)',
+            fontSize: '11px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            animation: 'pulse 2s infinite',
+          }}>
+            <span>⚠️</span>
+            <span>Near-Failure Fatigue: {repetition.fatigue_index_pct ?? 45}% (Velocity Loss &gt;30%)</span>
+          </div>
+        ) : (
+          <div style={{
+            padding: '4px 10px',
+            borderRadius: '14px',
+            background: 'rgba(0, 230, 118, 0.1)',
+            border: '1px solid rgba(0, 230, 118, 0.25)',
+            color: 'var(--emerald-valid)',
+            fontSize: '11px',
+            fontWeight: 600,
+          }}>
+            ✓ Fresh Tempo (Fatigue: {repetition.fatigue_index_pct ?? 0}%)
+          </div>
+        )}
+      </div>
+
       {/* ── Exercise Profile Switcher ── */}
       <div style={{
         background: 'var(--bg-card)',

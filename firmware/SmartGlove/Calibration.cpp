@@ -2,19 +2,14 @@
 #include "Calibration.h"
 
 static constexpr uint32_t MAGIC_HEADER = 0x47524950; // "GRIP"
-static constexpr uint16_t SCHEMA_VERSION = 1;
+static constexpr uint16_t SCHEMA_VERSION = 2;        // Bumped to v2 for gravity vector schema
 
 PersonalCalibration::PersonalCalibration()
     : _currentStep(CALIB_IDLE),
       _stepStartTimeMs(0),
-      _sampleCount(0),
-      _sumPitch(0.0f),
-      _sumPitchSq(0.0f),
-      _sumRoll(0.0f),
-      _sumRollSq(0.0f),
-      _sumADC(0),
-      _sumADCSq(0) {
+      _consecutiveBadSamples(0) {
     memset(_failureReason, 0, sizeof(_failureReason));
+    resetAccumulators();
     resetToDefaults();
 }
 
@@ -38,9 +33,11 @@ void PersonalCalibration::resetToDefaults() {
     _profile.schemaVersion = SCHEMA_VERSION;
     _profile.calibratedTimeMs = 0;
 
-    _profile.neutralPitchDeg = Config::CalibrationDefaults::FALLBACK_PITCH_NEUTRAL_DEG;
-    _profile.neutralRollDeg = Config::CalibrationDefaults::FALLBACK_ROLL_NEUTRAL_DEG;
-    _profile.postureStabilityStd = 1.0f;
+    // Default neutral gravity reference vector points along +Z in sensor coordinates
+    _profile.neutralG[0] = 0.0f;
+    _profile.neutralG[1] = 0.0f;
+    _profile.neutralG[2] = 1.0f;
+    _profile.angularSpreadDeg = 1.0f;
 
     _profile.fsrRelaxedMeanADC = Config::CalibrationDefaults::FALLBACK_FSR_RELAXED_ADC;
     _profile.fsrRelaxedStdDev = 30.0f;
@@ -52,8 +49,10 @@ void PersonalCalibration::resetToDefaults() {
         (uint16_t)((_profile.fsrFirmMeanADC - _profile.fsrRelaxedMeanADC) * Config::RepEngineDefaults::MIN_GRIP_ELIGIBILITY_RATIO);
     _profile.postureToleranceDeg = 15.0f;
 
-    _profile.isValid = false; // Flagged false until personalized calibration is performed
+    _profile.isValid = false;
     _profile.crc32 = 0;
+
+    _stagingProfile = _profile;
 }
 
 bool PersonalCalibration::init() {
@@ -111,16 +110,16 @@ uint8_t PersonalCalibration::getStepProgressPct() const {
 
 void PersonalCalibration::resetAccumulators() {
     _stepStartTimeMs = millis();
-    _sampleCount = 0;
-    _sumPitch = 0.0f;
-    _sumPitchSq = 0.0f;
-    _sumRoll = 0.0f;
-    _sumRollSq = 0.0f;
-    _sumADC = 0;
-    _sumADCSq = 0;
+    _consecutiveBadSamples = 0;
+    _gxAccumulator.reset();
+    _gyAccumulator.reset();
+    _gzAccumulator.reset();
+    _adcAccumulator.reset();
 }
 
 void PersonalCalibration::startWizard() {
+    _profile.isValid = false;
+    _stagingProfile.isValid = false;
     resetAccumulators();
     memset(_failureReason, 0, sizeof(_failureReason));
     _currentStep = CALIB_PREP_STEP1_REST;
@@ -158,6 +157,16 @@ void PersonalCalibration::advanceStep() {
     }
 }
 
+void PersonalCalibration::confirmReady() {
+    // Only advance if currently in a PREP state waiting for user
+    if (_currentStep == CALIB_PREP_STEP1_REST ||
+        _currentStep == CALIB_PREP_STEP2_POSTURE ||
+        _currentStep == CALIB_PREP_STEP3_RELAXED ||
+        _currentStep == CALIB_PREP_STEP4_FIRM) {
+        advanceStep();
+    }
+}
+
 void PersonalCalibration::abortWizard(const char* reason) {
     failCalibration(reason);
 }
@@ -177,164 +186,221 @@ void PersonalCalibration::processSample(const RawSensorData& raw, const Processe
 
     switch (_currentStep) {
         case CALIB_PREP_STEP1_REST: {
-            if (elapsed >= Config::CalibrationDefaults::PREP_STEP1_REST_MS) {
-                advanceStep();
+            // User-paced: wait for explicit user confirmation (90s safety timeout)
+            if (elapsed >= 90000) {
+                failCalibration("Preflight: Timed out waiting for ready confirmation.");
             }
             break;
         }
 
         case CALIB_PREP_STEP2_POSTURE: {
-            if (elapsed >= Config::CalibrationDefaults::PREP_STEP2_POSTURE_MS) {
-                advanceStep();
+            // User-paced: wait for explicit user confirmation (90s safety timeout)
+            if (elapsed >= 90000) {
+                failCalibration("Neutral hold: Timed out waiting for ready confirmation.");
             }
             break;
         }
 
         case CALIB_PREP_STEP3_RELAXED: {
-            if (elapsed >= Config::CalibrationDefaults::PREP_STEP3_RELAXED_MS) {
-                advanceStep();
+            // User-paced: wait for explicit user confirmation (90s safety timeout)
+            if (elapsed >= 90000) {
+                failCalibration("Relaxed grip: Timed out waiting for ready confirmation.");
             }
             break;
         }
 
         case CALIB_PREP_STEP4_FIRM: {
-            if (elapsed >= Config::CalibrationDefaults::PREP_STEP4_FIRM_MS) {
-                advanceStep();
+            // User-paced: wait for explicit user confirmation (90s safety timeout)
+            if (elapsed >= 90000) {
+                failCalibration("Firm grip: Timed out waiting for ready confirmation.");
             }
             break;
         }
 
         case CALIB_STEP1_PREFLIGHT: {
-            // Verify sensors are operational and resting
-            if (raw.fsrVoltage > 2.5f) {
-                failCalibration("Preflight: FSR is under heavy pressure. Relax hand.");
-                return;
+            // Broadened tolerance to permit natural arm placement without hair-trigger abort
+            bool isBad = (raw.fsrVoltage > 2.85f) || 
+                         (proc.accelMagnitude_mps2 < 4.0f || proc.accelMagnitude_mps2 > 20.0f);
+
+            if (isBad) {
+                _consecutiveBadSamples++;
+                // Debounce to 25 samples (500 ms at 50 Hz) instead of hair-trigger 5 samples (100 ms)
+                if (_consecutiveBadSamples >= 25) {
+                    if (raw.fsrVoltage > 2.85f) {
+                        failCalibration("Preflight: FSR under heavy pressure (>2.85V). Keep arm relaxed.");
+                    } else {
+                        failCalibration("Preflight: Excessive acceleration or freefall detected.");
+                    }
+                    return;
+                }
+            } else {
+                _consecutiveBadSamples = 0;
             }
-            if (proc.accelMagnitude_mps2 < 6.0f || proc.accelMagnitude_mps2 > 14.0f) {
-                failCalibration("Preflight: Excessive acceleration or freefall detected.");
-                return;
-            }
-            // Require 800 ms of preflight stability before advancing
-            if (elapsed >= 800) {
+
+            if (elapsed >= Config::CalibrationDefaults::PREFLIGHT_RECORD_MS) {
                 advanceStep();
             }
             break;
         }
 
         case CALIB_STEP2_NEUTRAL_WRIST: {
-            // Accumulate posture angles
-            _sumPitch += proc.pitchDeg;
-            _sumPitchSq += (proc.pitchDeg * proc.pitchDeg);
-            _sumRoll += proc.rollDeg;
-            _sumRollSq += (proc.rollDeg * proc.rollDeg);
-            _sampleCount++;
+            // Accumulate 3D gravity vector components from Mahony filter
+            _gxAccumulator.update(proc.gravityVector[0]);
+            _gyAccumulator.update(proc.gravityVector[1]);
+            _gzAccumulator.update(proc.gravityVector[2]);
 
             if (elapsed >= Config::CalibrationDefaults::NEUTRAL_RECORD_DURATION_MS) {
-                if (_sampleCount < 50) {
+                if (_gxAccumulator.count < 50) {
                     failCalibration("Neutral hold: Insufficient samples collected.");
                     return;
                 }
-                float meanPitch = _sumPitch / _sampleCount;
-                float varPitch = (_sumPitchSq / _sampleCount) - (meanPitch * meanPitch);
-                float stdPitch = sqrtf(varPitch > 0.0f ? varPitch : 0.0f);
+                float meanGx = (float)_gxAccumulator.getMean();
+                float meanGy = (float)_gyAccumulator.getMean();
+                float meanGz = (float)_gzAccumulator.getMean();
 
-                float meanRoll = _sumRoll / _sampleCount;
-                float varRoll = (_sumRollSq / _sampleCount) - (meanRoll * meanRoll);
-                float stdRoll = sqrtf(varRoll > 0.0f ? varRoll : 0.0f);
-
-                float combinedStd = sqrtf(stdPitch * stdPitch + stdRoll * stdRoll);
-
-                if (combinedStd > 6.0f) {
-                    failCalibration("Neutral hold: Excessive wrist movement during hold.");
+                float mag = sqrtf(meanGx * meanGx + meanGy * meanGy + meanGz * meanGz);
+                if (mag < 0.1f) {
+                    failCalibration("Neutral hold: Degenerate gravity vector.");
                     return;
                 }
 
-                _profile.neutralPitchDeg = meanPitch;
-                _profile.neutralRollDeg = meanRoll;
-                _profile.postureStabilityStd = combinedStd;
+                // Compute angular spread / stability in degrees
+                float stdGx = (float)_gxAccumulator.getStdDev();
+                float stdGy = (float)_gyAccumulator.getStdDev();
+                float stdGz = (float)_gzAccumulator.getStdDev();
+                float angularSpreadDeg = sqrtf(stdGx * stdGx + stdGy * stdGy + stdGz * stdGz) * (180.0f / M_PI);
 
-                advanceStep(); // Move to relaxed grip
+                // Allow realistic human postural tremor (up to 16 deg spread over 3s hold with weight)
+                if (angularSpreadDeg > 16.0f) {
+                    failCalibration("Neutral hold: Excessive wrist movement (>16 deg spread).");
+                    return;
+                }
+
+                // Normalize neutral gravity reference vector
+                _stagingProfile.neutralG[0] = meanGx / mag;
+                _stagingProfile.neutralG[1] = meanGy / mag;
+                _stagingProfile.neutralG[2] = meanGz / mag;
+                _stagingProfile.angularSpreadDeg = angularSpreadDeg;
+
+                advanceStep(); // Move to relaxed grip prep
             }
             break;
         }
 
         case CALIB_STEP3_RELAXED_GRIP: {
-            _sumADC += raw.fsrRawADC;
-            _sumADCSq += (uint64_t)raw.fsrRawADC * raw.fsrRawADC;
-            _sampleCount++;
+            _adcAccumulator.update((double)raw.fsrRawADC);
 
             if (elapsed >= Config::CalibrationDefaults::GRIP_RECORD_DURATION_MS) {
-                if (_sampleCount < 40) {
+                if (_adcAccumulator.count < 40) {
                     failCalibration("Relaxed grip: Insufficient samples collected.");
                     return;
                 }
-                float meanADC = (float)_sumADC / _sampleCount;
-                float varADC = ((float)_sumADCSq / _sampleCount) - (meanADC * meanADC);
-                float stdADC = sqrtf(varADC > 0.0f ? varADC : 0.0f);
+                float meanADC = (float)_adcAccumulator.getMean();
+                float stdADC  = (float)_adcAccumulator.getStdDev();
 
-                if (meanADC > 1200.0f) {
-                    failCalibration("Relaxed grip: Baseline too high (>1200 ADC). Release grip.");
+                // Tolerant baseline for snug glove fit or dumbbell resting in palm (permits real dumbbell hold)
+                if (meanADC > 3400.0f) {
+                    failCalibration("Relaxed grip: Baseline too high (>3400 ADC). Rest fingers lightly.");
                     return;
                 }
 
-                _profile.fsrRelaxedMeanADC = (uint16_t)meanADC;
-                _profile.fsrRelaxedStdDev = stdADC;
+                // Account for ESP32 ADC noise (~30-60 counts) plus physiological tremor holding dumbbell
+                if (stdADC > 750.0f) {
+                    failCalibration("Relaxed grip: Excessive variance (>750 ADC std). Keep fingers steady.");
+                    return;
+                }
 
-                advanceStep(); // Move to firm grip
+                _stagingProfile.fsrRelaxedMeanADC = (uint16_t)meanADC;
+                _stagingProfile.fsrRelaxedStdDev = stdADC;
+
+                advanceStep(); // Move to firm grip prep
             }
             break;
         }
 
         case CALIB_STEP4_FIRM_GRIP: {
-            _sumADC += raw.fsrRawADC;
-            _sumADCSq += (uint64_t)raw.fsrRawADC * raw.fsrRawADC;
-            _sampleCount++;
+            _adcAccumulator.update((double)raw.fsrRawADC);
 
             if (elapsed >= Config::CalibrationDefaults::GRIP_RECORD_DURATION_MS) {
-                if (_sampleCount < 40) {
+                if (_adcAccumulator.count < 40) {
                     failCalibration("Firm grip: Insufficient samples collected.");
                     return;
                 }
-                float meanADC = (float)_sumADC / _sampleCount;
-                float varADC = ((float)_sumADCSq / _sampleCount) - (meanADC * meanADC);
-                float stdADC = sqrtf(varADC > 0.0f ? varADC : 0.0f);
+                float meanADC = (float)_adcAccumulator.getMean();
+                float stdADC  = (float)_adcAccumulator.getStdDev();
 
-                _profile.fsrFirmMeanADC = (uint16_t)meanADC;
-                _profile.fsrFirmStdDev = stdADC;
+                // Check minimum effort
+                if (meanADC < 600.0f) {
+                    failCalibration("Firm grip: Squeeze too weak (<600 ADC). Squeeze firmly.");
+                    return;
+                }
 
-                advanceStep(); // Move to validation
+                // Saturation at full voluntary contraction is NORMAL - clamp rather than fail!
+                if (meanADC > 4050.0f) {
+                    meanADC = 4050.0f;
+                }
+
+                _stagingProfile.fsrFirmMeanADC = (uint16_t)meanADC;
+                _stagingProfile.fsrFirmStdDev = stdADC;
+
+                advanceStep(); // Move to statistical validation
             }
             break;
         }
 
         case CALIB_STEP5_VALIDATION: {
-            // Check dynamic range
-            if (_profile.fsrFirmMeanADC <= _profile.fsrRelaxedMeanADC + 350) {
-                failCalibration("Validation: Insufficient grip dynamic range (<350 ADC separation).");
+            // 1. Dynamic range check (require at least 200 ADC separation)
+            if (_stagingProfile.fsrFirmMeanADC <= _stagingProfile.fsrRelaxedMeanADC + 200) {
+                failCalibration("Validation: Insufficient grip dynamic range (<200 ADC separation).");
                 return;
             }
 
-            // Check statistical separation ratio:
-            // Sep = (Firm - Relaxed) / (StdFirm + StdRelaxed)
-            float totalSpread = _profile.fsrFirmStdDev + _profile.fsrRelaxedStdDev;
-            if (totalSpread < 1.0f) totalSpread = 1.0f; // Prevent div by zero
-            float separationRatio = (float)(_profile.fsrFirmMeanADC - _profile.fsrRelaxedMeanADC) / totalSpread;
-            _profile.gripSeparationRatio = separationRatio;
+            // 2. Firm-hold Coefficient of Variation (CV = std / mean < 0.45)
+            // Allows natural grip force ramping without falsely rejecting
+            float firmCV = (_stagingProfile.fsrFirmMeanADC > 0) ? 
+                           (_stagingProfile.fsrFirmStdDev / (float)_stagingProfile.fsrFirmMeanADC) : 1.0f;
+            if (firmCV >= 0.45f) {
+                failCalibration("Validation: Squeeze force erratic (CV >= 0.45). Maintain steady hold.");
+                return;
+            }
+
+            // 3. Statistical separation ratio
+            float totalSpread = _stagingProfile.fsrFirmStdDev + _stagingProfile.fsrRelaxedStdDev;
+            if (totalSpread < 1.0f) totalSpread = 1.0f;
+            float separationRatio = (float)(_stagingProfile.fsrFirmMeanADC - _stagingProfile.fsrRelaxedMeanADC) / totalSpread;
+            _stagingProfile.gripSeparationRatio = separationRatio;
 
             if (separationRatio < Config::CalibrationDefaults::MIN_ACCEPTABLE_SEPARATION_RATIO) {
                 failCalibration("Validation: Grip distributions overlap excessively. Squeeze firmer.");
                 return;
             }
 
-            // Derive personalized rep thresholds
-            _profile.gripEligibilityADC = _profile.fsrRelaxedMeanADC + 
-                (uint16_t)((_profile.fsrFirmMeanADC - _profile.fsrRelaxedMeanADC) * Config::RepEngineDefaults::MIN_GRIP_ELIGIBILITY_RATIO);
-            _profile.postureToleranceDeg = 15.0f;
-            _profile.calibratedTimeMs = millis();
-            _profile.isValid = true;
+            // 4. Derive personalized rep thresholds
+            _stagingProfile.gripEligibilityADC = _stagingProfile.fsrRelaxedMeanADC + 
+                (uint16_t)((_stagingProfile.fsrFirmMeanADC - _stagingProfile.fsrRelaxedMeanADC) * Config::RepEngineDefaults::MIN_GRIP_ELIGIBILITY_RATIO);
+            _stagingProfile.postureToleranceDeg = 15.0f;
+            _stagingProfile.calibratedTimeMs = millis();
+            _stagingProfile.isValid = true;
+            _stagingProfile.magicHeader = MAGIC_HEADER;
+            _stagingProfile.schemaVersion = SCHEMA_VERSION;
 
-            // Save to persistent storage
-            if (saveToNVS()) {
+            size_t payloadSize = sizeof(CalibrationProfile) - sizeof(uint32_t);
+            _stagingProfile.crc32 = calculateCRC32((const uint8_t*)&_stagingProfile, payloadSize);
+
+            // 5. Commit to active profile ONLY after persistent NVS save succeeds
+            bool nvsSuccess = false;
+#if defined(ARDUINO_ARCH_ESP32)
+            if (_prefs.begin("glove_cal", false)) {
+                size_t bytesWritten = _prefs.putBytes("profile", &_stagingProfile, sizeof(CalibrationProfile));
+                _prefs.end();
+                nvsSuccess = (bytesWritten == sizeof(CalibrationProfile));
+            }
+#else
+            nvsSuccess = true;
+#endif
+
+            if (nvsSuccess) {
+                _profile = _stagingProfile;
                 _currentStep = CALIB_COMPLETED;
             } else {
                 failCalibration("Validation: Failed to write calibration profile to NVS.");
@@ -348,10 +414,10 @@ void PersonalCalibration::processSample(const RawSensorData& raw, const Processe
 }
 
 bool PersonalCalibration::saveToNVS() {
+#if defined(ARDUINO_ARCH_ESP32)
     _profile.magicHeader = MAGIC_HEADER;
     _profile.schemaVersion = SCHEMA_VERSION;
 
-    // Calculate CRC32 excluding the crc32 field itself
     size_t payloadSize = sizeof(CalibrationProfile) - sizeof(uint32_t);
     _profile.crc32 = calculateCRC32((const uint8_t*)&_profile, payloadSize);
 
@@ -363,10 +429,14 @@ bool PersonalCalibration::saveToNVS() {
     _prefs.end();
 
     return (bytesWritten == sizeof(CalibrationProfile));
+#else
+    return true;
+#endif
 }
 
 bool PersonalCalibration::loadFromNVS() {
-    if (!_prefs.begin("glove_cal", true)) { // Read-only
+#if defined(ARDUINO_ARCH_ESP32)
+    if (!_prefs.begin("glove_cal", true)) {
         return false;
     }
 
@@ -378,9 +448,9 @@ bool PersonalCalibration::loadFromNVS() {
         return false;
     }
 
-    // Verify Magic and Version
+    // Verify Magic and Version (Schema Version must be strictly 2)
     if (tempProfile.magicHeader != MAGIC_HEADER || tempProfile.schemaVersion != SCHEMA_VERSION) {
-        return false;
+        return false; // Rejects old schema v1 blobs cleanly
     }
 
     // Verify CRC32
@@ -392,4 +462,7 @@ bool PersonalCalibration::loadFromNVS() {
 
     _profile = tempProfile;
     return _profile.isValid;
+#else
+    return false;
+#endif
 }
